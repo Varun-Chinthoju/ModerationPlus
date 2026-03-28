@@ -111,22 +111,39 @@ app.post('/api/dev/private-scan', async (req, res) => {
             return res.status(404).json({ error: 'Channel not found' });
         }
 
-        const messages = await (channel as TextChannel).messages.fetch({ limit: 100 });
+        const textChannel = channel as TextChannel;
+        const messages = await textChannel.messages.fetch({ limit: 100 });
+        
+        // Ensure members are fetched so roles are available
+        try {
+            await textChannel.guild.members.fetch();
+        } catch (e) {
+            console.log("[API] Failed to bulk fetch members for private scan, falling back to cache.");
+        }
+
         const transcript = Array.from(messages.values())
             .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
-            .map(m => ({
-                id: m.id,
-                author: m.author.tag,
-                roles: (m.member?.roles.cache.map(r => r.name).filter(n => n !== '@everyone')) || [],
-                content: m.content,
-                timestamp: m.createdAt.toISOString()
-            }));
+            .map(m => {
+                let roles: string[] = [];
+                try {
+                    roles = m.member?.roles.cache.map(r => r.name).filter(n => n !== '@everyone') || [];
+                } catch (e) {}
+
+                return {
+                    id: m.id,
+                    author: m.author.tag,
+                    roles: roles,
+                    content: m.content,
+                    timestamp: m.createdAt.toISOString()
+                };
+            });
 
         res.json({
-            channel: (channel as any).name,
+            channel: textChannel.name,
             messages: transcript
         });
     } catch (error) {
+        console.error('[API] Private scan error:', error);
         res.status(500).json({ error: 'Private fetch failed' });
     }
 });
@@ -182,6 +199,11 @@ client.on(Events.MessageCreate, async (message) => {
         const targetUser = message.mentions.users.first();
         if (targetUser) {
             await handlePotentialInfraction(message.channel as TextChannel, targetUser, message);
+        }
+    } else {
+        // PROACTIVE NEURAL PROFILING (1% chance on any message)
+        if (Math.random() < 0.01 && !message.author.bot) {
+            await handlePotentialInfraction(message.channel as TextChannel, message.author, message, true);
         }
     }
 });
