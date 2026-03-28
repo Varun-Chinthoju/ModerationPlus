@@ -39,7 +39,7 @@ function App() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [selectedAction, setSelectedAction] = useState<ModerationAction | null>(null);
-    const [searchTerm, setSearchSearchTerm] = useState('');
+    const [searchTerm, setSearchTerm] = useState('');
 
     const fetchData = async () => {
         if (!apiKey) return;
@@ -225,7 +225,7 @@ function App() {
                                     placeholder="Filter by user or reason..."
                                     className="w-full bg-slate-900/50 border border-white/5 rounded-[1.25rem] py-3 pl-12 pr-4 text-sm text-slate-300 focus:outline-none focus:border-blue-500/30 transition-all"
                                     value={searchTerm}
-                                    onChange={(e) => setSearchSearchTerm(e.target.value)}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
                                 />
                             </div>
                         </div>
