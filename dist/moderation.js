@@ -1,9 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.handlePotentialInfraction = handlePotentialInfraction;
+exports.performMassScan = performMassScan;
 const discord_js_1 = require("discord.js");
 const ai_1 = require("./ai");
-const index_1 = require("./index");
+const client_1 = require("./client");
 const stats_1 = require("./stats");
 async function handlePotentialInfraction(channel, targetUser, triggerMessage) {
     console.log(`Analyzing potential infraction by ${targetUser.tag} in #${channel.name}`);
@@ -36,7 +37,7 @@ async function handlePotentialInfraction(channel, targetUser, triggerMessage) {
     const modLogsChannelId = process.env.MOD_LOGS_CHANNEL_ID;
     if (!modLogsChannelId)
         return;
-    const modLogsChannel = await index_1.client.channels.fetch(modLogsChannelId);
+    const modLogsChannel = await client_1.client.channels.fetch(modLogsChannelId);
     if (!modLogsChannel || !modLogsChannel.isTextBased())
         return;
     const textChannel = modLogsChannel;
@@ -56,4 +57,26 @@ async function handlePotentialInfraction(channel, targetUser, triggerMessage) {
     const row = new discord_js_1.ActionRowBuilder()
         .addComponents(approveBtn, dismissBtn);
     await textChannel.send({ embeds: [embed], components: [row] });
+}
+async function performMassScan(channel) {
+    console.log(`Starting mass scan for channel: #${channel.name}`);
+    let allMessages = [];
+    let lastId;
+    // Fetch 500 messages in chunks of 100
+    for (let i = 0; i < 5; i++) {
+        const options = { limit: 100 };
+        if (lastId)
+            options.before = lastId;
+        const fetched = await channel.messages.fetch(options);
+        if (fetched.size === 0)
+            break;
+        allMessages = allMessages.concat(Array.from(fetched.values()));
+        lastId = fetched.last()?.id;
+    }
+    // Sort oldest to newest
+    const sorted = allMessages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+    // Format transcript
+    const transcript = sorted.map(m => `[${m.createdAt.toISOString()}] ${m.author.tag}: ${m.content}`).join('\n');
+    // Perform AI Analysis
+    return await (0, ai_1.analyzeMassScan)(transcript, sorted.length);
 }

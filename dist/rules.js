@@ -2,11 +2,11 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.cachedRules = void 0;
 exports.fetchRules = fetchRules;
-const index_1 = require("./index");
+const client_1 = require("./client");
 exports.cachedRules = "No rules loaded yet.";
 async function fetchRules(channelId) {
     try {
-        const channel = await index_1.client.channels.fetch(channelId);
+        const channel = await client_1.client.channels.fetch(channelId);
         if (!channel || !channel.isTextBased()) {
             console.error(`Rules channel ${channelId} not found or is not text-based.`);
             return exports.cachedRules;
