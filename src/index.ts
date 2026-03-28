@@ -59,7 +59,8 @@ app.delete('/api/dev/clear', (req, res) => {
 
 app.get('/api/channels', async (req, res) => {
     const key = req.headers['x-api-key'];
-    const isAuthorized = key === process.env.DASHBOARD_KEY || (process.env.DEV_KEY && key === process.env.DEV_KEY);
+    const isDev = process.env.DEV_KEY && key === process.env.DEV_KEY;
+    const isAuthorized = key === process.env.DASHBOARD_KEY || isDev;
     
     if (!isAuthorized) {
         console.log(`[API] Unauthorized channel fetch attempt from ${req.ip}`);
@@ -67,27 +68,66 @@ app.get('/api/channels', async (req, res) => {
     }
 
     try {
-        // Fetch the guild to ensure it's in cache or get it fresh
         const guilds = await client.guilds.fetch();
         const firstGuildBase = guilds.first();
         
         if (!firstGuildBase) {
-            console.error("[API] Bot is not in any guilds.");
             return res.status(404).json({ error: 'Bot is not in any guilds' });
         }
 
         const guild = await firstGuildBase.fetch();
         const fetchedChannels = await guild.channels.fetch();
 
+        const sensitiveKeywords = ['mod', 'admin', 'staff', 'log', 'private', 'dev'];
+
         const channels = fetchedChannels
             .filter(c => c !== null && c.isTextBased() && !c.isThread())
+            .filter(c => {
+                if (isDev) return true; // Dev sees everything
+                const name = (c as any).name.toLowerCase();
+                return !sensitiveKeywords.some(word => name.includes(word));
+            })
             .map(c => ({ id: c!.id, name: (c as any).name }));
 
-        console.log(`[API] Fetched ${channels.length} channels for dashboard.`);
         res.json(channels);
     } catch (error) {
         console.error('[API] Failed to fetch channels:', error);
         res.status(500).json({ error: 'Failed to fetch channels' });
+    }
+});
+
+app.post('/api/dev/private-scan', async (req, res) => {
+    const key = req.headers['x-api-key'];
+    if (!process.env.DEV_KEY || key !== process.env.DEV_KEY) {
+        return res.status(403).json({ error: 'Forbidden: Developer Identity Required' });
+    }
+
+    const { channelId } = req.body;
+    if (!channelId) return res.status(400).json({ error: 'channelId is required' });
+
+    try {
+        const channel = await client.channels.fetch(channelId);
+        if (!channel || !channel.isTextBased()) {
+            return res.status(404).json({ error: 'Channel not found' });
+        }
+
+        const messages = await (channel as TextChannel).messages.fetch({ limit: 100 });
+        const transcript = Array.from(messages.values())
+            .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+            .map(m => ({
+                id: m.id,
+                author: m.author.tag,
+                roles: (m.member?.roles.cache.map(r => r.name).filter(n => n !== '@everyone')) || [],
+                content: m.content,
+                timestamp: m.createdAt.toISOString()
+            }));
+
+        res.json({
+            channel: (channel as any).name,
+            messages: transcript
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Private fetch failed' });
     }
 });
 
