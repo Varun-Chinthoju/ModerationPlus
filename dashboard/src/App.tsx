@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
     Activity, ShieldAlert, Clock, User, ShieldCheck, 
     RefreshCw, Key, Settings, ChevronRight, 
-    Terminal, Lock, LogOut, Search, Info, X
+    Terminal, Lock, LogOut, Search, Info, X, FileSearch, Download
 } from 'lucide-react';
 
 interface ModerationAction {
@@ -14,6 +14,8 @@ interface ModerationAction {
     violation: boolean;
     reason: string;
     analysis: string;
+    type?: 'INFRACTION' | 'AUDIT'; // Discriminator
+    auditData?: MassScanResult;
 }
 
 interface AccessLog {
@@ -28,6 +30,7 @@ interface BotStats {
     totalTimeouts: number;
     uptime: number;
     lastActions: ModerationAction[];
+    massScans: MassScanResult[];
     accessLogs: AccessLog[];
 }
 
@@ -40,6 +43,8 @@ interface UserSummary {
 }
 
 interface MassScanResult {
+    timestamp: string;
+    channel: string;
     totalMessages: number;
     usersAnalyzed: UserSummary[];
     generalConclusion: string;
@@ -58,11 +63,11 @@ function App() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [selectedAction, setSelectedAction] = useState<ModerationAction | null>(null);
+    const [selectedAudit, setSelectedAudit] = useState<MassScanResult | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
 
     const [channels, setChannels] = useState<Channel[]>([]);
     const [selectedChannel, setSelectedChannel] = useState('');
-    const [massScanResult, setMassScanResult] = useState<MassScanResult | null>(null);
     const [scanning, setScanning] = useState(false);
 
     const fetchData = async () => {
@@ -100,13 +105,13 @@ function App() {
     const handleMassScan = async () => {
         if (!selectedChannel) return;
         setScanning(true);
-        setMassScanResult(null);
         try {
             const response = await axios.post(`${botUrl}/api/mass-scan`, 
                 { channelId: selectedChannel },
                 { headers: { 'x-api-key': apiKey } }
             );
-            setMassScanResult(response.data);
+            setSelectedAudit(response.data);
+            fetchData(); // Refresh history to show new audit
         } catch (err: any) {
             setError(err.response?.data?.error || 'Mass scan failed.');
         } finally {
@@ -114,13 +119,28 @@ function App() {
         }
     };
 
-    const downloadReport = () => {
-        if (!massScanResult) return;
-        const blob = new Blob([JSON.stringify(massScanResult, null, 2)], { type: 'application/json' });
+    const handleClearLogs = async (target: 'logs' | 'access') => {
+        const key = prompt(`Enter Developer Key to clear ${target === 'logs' ? 'neural monitoring' : 'access'} logs:`);
+        if (!key) return;
+
+        try {
+            await axios.delete(`${botUrl}/api/dev/clear`, {
+                headers: { 'x-api-key': apiKey, 'x-dev-key': key },
+                data: { target }
+            });
+            fetchData();
+            alert('Logs cleared successfully.');
+        } catch (err: any) {
+            alert(err.response?.data?.error || 'Clear failed.');
+        }
+    };
+
+    const downloadReport = (audit: MassScanResult) => {
+        const blob = new Blob([JSON.stringify(audit, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `mass-scan-report-${selectedChannel}-${new Date().toISOString()}.json`;
+        a.download = `mass-scan-report-${audit.channel}-${new Date(audit.timestamp).toISOString()}.json`;
         a.click();
         URL.revokeObjectURL(url);
     };
@@ -147,14 +167,31 @@ function App() {
         setStats(null);
     };
 
-    const filteredActions = useMemo(() => {
-        if (!stats?.lastActions) return [];
-        return stats.lastActions.filter(a => 
+    const unifiedHistory = useMemo(() => {
+        const infractions = (stats?.lastActions || []).map(a => ({ ...a, type: 'INFRACTION' as const }));
+        const audits = (stats?.massScans || []).map(s => ({
+            timestamp: s.timestamp,
+            targetUser: 'COMMUNITY AUDIT',
+            channel: s.channel,
+            violation: true, // Mark audits as prominent
+            reason: s.generalConclusion,
+            analysis: '',
+            type: 'AUDIT' as const,
+            auditData: s
+        }));
+
+        return [...infractions, ...audits].sort((a, b) => 
+            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+        );
+    }, [stats]);
+
+    const filteredHistory = useMemo(() => {
+        return unifiedHistory.filter(a => 
             a.targetUser.toLowerCase().includes(searchTerm.toLowerCase()) ||
             a.reason.toLowerCase().includes(searchTerm.toLowerCase()) ||
             a.channel.toLowerCase().includes(searchTerm.toLowerCase())
         );
-    }, [stats, searchTerm]);
+    }, [unifiedHistory, searchTerm]);
 
     const containerVariants = {
         hidden: { opacity: 0 },
@@ -274,129 +311,75 @@ function App() {
                     <StatCard icon={<User />} label="Punishments" value={stats?.totalTimeouts ?? '--'} color="green" subtitle="Verified timeouts applied" />
                 </motion.div>
 
-                {/* Neural Audit (Mass Scan) */}
-                <motion.div 
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.3 }}
-                    className="glass p-8 rounded-[2.5rem] border-white/10"
-                >
-                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-8">
-                        <div className="flex items-center gap-6">
-                            <div className="p-4 bg-blue-500/10 rounded-2xl">
-                                <Search className="w-8 h-8 text-blue-400" />
-                            </div>
-                            <div>
-                                <h2 className="text-2xl font-black text-white">Neural Audit</h2>
-                                <p className="text-slate-400 font-medium">Scan last 500 messages for community-wide rule compliance</p>
-                            </div>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-4">
-                            <select 
-                                value={selectedChannel}
-                                onChange={(e) => setSelectedChannel(e.target.value)}
-                                className="bg-slate-900/50 border border-white/10 rounded-2xl px-6 py-4 text-white focus:outline-none focus:border-blue-500/50 transition-all min-w-[200px]"
-                            >
-                                <option value="" disabled>Select Channel</option>
-                                {channels.map(c => (
-                                    <option key={c.id} value={c.id}>#{c.name}</option>
-                                ))}
-                            </select>
-                            <button 
-                                onClick={handleMassScan}
-                                disabled={scanning || !selectedChannel}
-                                className={`flex items-center gap-3 px-8 py-4 rounded-2xl font-bold transition-all active:scale-95 ${
-                                    scanning 
-                                    ? 'bg-blue-500/20 text-blue-400 cursor-not-allowed' 
-                                    : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20'
-                                }`}
-                            >
-                                {scanning ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Activity className="w-5 h-5" />}
-                                <span>{scanning ? 'Analyzing 500 Messages...' : 'Start Mass Scan'}</span>
-                            </button>
-                            {massScanResult && (
-                                <button 
-                                    onClick={downloadReport}
-                                    className="flex items-center gap-3 px-8 py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-bold transition-all shadow-lg shadow-indigo-500/20 active:scale-95"
-                                >
-                                    <ShieldCheck className="w-5 h-5" />
-                                    <span>Download JSON Report</span>
-                                </button>
-                            )}
-                        </div>
-                    </div>
-
-                    {massScanResult && (
-                        <motion.div 
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: 'auto' }}
-                            className="mt-10 pt-10 border-t border-white/5 space-y-8"
-                        >
-                            <div className="glass-card p-8 rounded-[2rem] bg-blue-500/5 border-blue-500/10">
-                                <h3 className="text-sm font-black text-blue-400 uppercase tracking-widest mb-4">Neural Conclusion</h3>
-                                <p className="text-lg text-slate-200 font-medium leading-relaxed">{massScanResult.generalConclusion}</p>
-                            </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                {massScanResult.usersAnalyzed.map((user, i) => (
-                                    <div key={i} className="glass-card p-6 rounded-3xl border-white/5 hover:border-white/10 transition-all group">
-                                        <div className="flex items-center justify-between mb-4">
-                                            <div className="font-bold text-white group-hover:text-blue-400 transition-colors">{user.userTag}</div>
-                                            <span className={`px-3 py-1 rounded-lg text-[10px] font-black tracking-widest ${
-                                                user.riskLevel === 'Critical' ? 'bg-red-500/20 text-red-400' :
-                                                user.riskLevel === 'High' ? 'bg-orange-500/20 text-orange-400' :
-                                                user.riskLevel === 'Medium' ? 'bg-yellow-500/20 text-yellow-400' :
-                                                'bg-green-500/20 text-green-400'
-                                            }`}>
-                                                {user.riskLevel}
-                                            </span>
-                                        </div>
-                                        <p className="text-sm text-slate-400 line-clamp-3 mb-4">{user.behaviorSummary}</p>
-                                        <div className="space-y-3">
-                                            <div className="flex flex-wrap gap-2">
-                                                {user.violatedRules.map((rule, j) => (
-                                                    <span key={j} className="px-2 py-0.5 bg-slate-800 rounded text-[10px] text-slate-500 font-bold border border-white/5">
-                                                        {rule}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                            <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Recommended Action</div>
-                                            <div className="text-sm font-bold text-slate-300">{user.suggestedPunishment}</div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </motion.div>
-                    )}
-                </motion.div>
-
                 <div className="grid grid-cols-1 xl:grid-cols-4 gap-10">
-                    {/* Activity Terminal */}
+                    {/* Neural Monitoring / Activity Terminal */}
                     <motion.div 
                         initial={{ opacity: 0, x: -20 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: 0.4 }}
-                        className="xl:col-span-3 glass-card rounded-[2.5rem] overflow-hidden flex flex-col min-h-[600px]"
+                        className="xl:col-span-3 glass-card rounded-[2.5rem] overflow-hidden flex flex-col min-h-[700px]"
                     >
-                        <div className="p-8 border-b border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-6">
-                            <div className="flex items-center gap-4">
-                                <div className="p-3 bg-slate-800 rounded-2xl">
-                                    <Terminal className="w-6 h-6 text-blue-400" />
+                        <div className="p-8 border-b border-white/5 flex flex-col space-y-6">
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                                <div className="flex items-center gap-4">
+                                    <div className="p-3 bg-slate-800 rounded-2xl">
+                                        <Terminal className="w-6 h-6 text-blue-400" />
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        <h2 className="text-2xl font-black text-white">Neural Monitoring</h2>
+                                        <span className="flex h-2 w-2 rounded-full bg-blue-500 animate-ping"></span>
+                                    </div>
                                 </div>
-                                <div className="flex items-center gap-3">
-                                    <h2 className="text-2xl font-black text-white">Neural Monitoring</h2>
-                                    <span className="flex h-2 w-2 rounded-full bg-blue-500 animate-ping"></span>
+                                <div className="relative group w-full md:w-80">
+                                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-blue-400" />
+                                    <input 
+                                        type="text" 
+                                        placeholder="Filter by identity or reason..."
+                                        className="w-full bg-slate-900/50 border border-white/5 rounded-[1.25rem] py-3 pl-12 pr-4 text-sm text-slate-300 focus:outline-none focus:border-blue-500/30 transition-all"
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                    />
                                 </div>
+                                <button 
+                                    onClick={() => handleClearLogs('logs')}
+                                    className="p-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-2xl text-red-400 transition-all active:scale-95"
+                                    title="Clear Neural History"
+                                >
+                                    <X className="w-5 h-5" />
+                                </button>
                             </div>
-                            <div className="relative group w-full md:w-80">
-                                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-blue-400" />
-                                <input 
-                                    type="text" 
-                                    placeholder="Filter by user or reason..."
-                                    className="w-full bg-slate-900/50 border border-white/5 rounded-[1.25rem] py-3 pl-12 pr-4 text-sm text-slate-300 focus:outline-none focus:border-blue-500/30 transition-all"
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                />
+
+                            {/* Neural Audit (Integrated Tools) */}
+                            <div className="flex flex-wrap items-center gap-4 p-4 bg-blue-500/5 rounded-[1.5rem] border border-blue-500/10">
+                                <div className="flex items-center gap-3 px-4 py-2 border-r border-white/10 mr-2">
+                                    <FileSearch className="w-5 h-5 text-blue-400" />
+                                    <span className="text-xs font-black text-blue-400 uppercase tracking-widest">Neural Audit Tool</span>
+                                </div>
+                                <select 
+                                    value={selectedChannel}
+                                    onChange={(e) => setSelectedChannel(e.target.value)}
+                                    className="bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500/50 transition-all min-w-[180px]"
+                                >
+                                    <option value="" disabled>Select Channel</option>
+                                    {channels.map(c => (
+                                        <option key={c.id} value={c.id}>#{c.name}</option>
+                                    ))}
+                                </select>
+                                <button 
+                                    onClick={handleMassScan}
+                                    disabled={scanning || !selectedChannel}
+                                    className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 ${
+                                        scanning 
+                                        ? 'bg-blue-500/20 text-blue-400 cursor-not-allowed' 
+                                        : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20'
+                                    }`}
+                                >
+                                    {scanning ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Activity className="w-4 h-4" />}
+                                    <span>{scanning ? 'Auditing Community...' : 'Run Mass Scan'}</span>
+                                </button>
+                                <div className="ml-auto text-[10px] font-bold text-slate-500 uppercase tracking-widest hidden md:block">
+                                    Scans last 500 messages for community health
+                                </div>
                             </div>
                         </div>
                         
@@ -413,18 +396,18 @@ function App() {
                                 </thead>
                                 <tbody className="divide-y divide-white/[0.02]">
                                     <AnimatePresence mode='popLayout'>
-                                        {filteredActions.map((action, i) => (
+                                        {filteredHistory.map((action, i) => (
                                             <motion.tr 
                                                 key={action.timestamp + i}
                                                 layout
                                                 initial={{ opacity: 0 }}
                                                 animate={{ opacity: 1 }}
                                                 exit={{ opacity: 0 }}
-                                                className="group hover:bg-white/[0.02] transition-all cursor-pointer"
-                                                onClick={() => setSelectedAction(action)}
+                                                className={`group hover:bg-white/[0.02] transition-all cursor-pointer ${action.type === 'AUDIT' ? 'bg-blue-500/5' : ''}`}
+                                                onClick={() => action.type === 'AUDIT' ? setSelectedAudit(action.auditData!) : setSelectedAction(action)}
                                             >
                                                 <td className="px-8 py-6">
-                                                    <div className="font-bold text-slate-200 group-hover:text-blue-400 transition-colors">{action.targetUser}</div>
+                                                    <div className={`font-bold transition-colors ${action.type === 'AUDIT' ? 'text-blue-400' : 'text-slate-200 group-hover:text-blue-400'}`}>{action.targetUser}</div>
                                                     <div className="text-[10px] font-mono text-slate-500 mt-1 uppercase tracking-tighter">{new Date(action.timestamp).toLocaleString()}</div>
                                                 </td>
                                                 <td className="px-8 py-6">
@@ -433,16 +416,18 @@ function App() {
                                                 <td className="px-8 py-6">
                                                     <div className="flex justify-center">
                                                         <span className={`px-4 py-1.5 rounded-[10px] text-[10px] font-black tracking-widest border ${
-                                                            action.violation 
-                                                            ? 'bg-red-500/10 text-red-400 border-red-500/20' 
-                                                            : 'bg-green-500/10 text-green-400 border-green-500/20'
+                                                            action.type === 'AUDIT' 
+                                                            ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                                                            : action.violation 
+                                                                ? 'bg-red-500/10 text-red-400 border-red-500/20' 
+                                                                : 'bg-green-500/10 text-green-400 border-green-500/20'
                                                         }`}>
-                                                            {action.violation ? 'MALICIOUS' : 'SECURE'}
+                                                            {action.type === 'AUDIT' ? 'COMMUNITY AUDIT' : action.violation ? 'MALICIOUS' : 'SECURE'}
                                                         </span>
                                                     </div>
                                                 </td>
                                                 <td className="px-8 py-6 max-w-xs">
-                                                    <p className="text-sm text-slate-400 italic line-clamp-1 group-hover:text-slate-300">
+                                                    <p className={`text-sm italic line-clamp-1 ${action.type === 'AUDIT' ? 'text-blue-200 font-medium' : 'text-slate-400 group-hover:text-slate-300'}`}>
                                                         {action.reason}
                                                     </p>
                                                 </td>
@@ -454,7 +439,7 @@ function App() {
                                     </AnimatePresence>
                                 </tbody>
                             </table>
-                            {filteredActions.length === 0 && (
+                            {filteredHistory.length === 0 && (
                                 <div className="p-20 text-center flex flex-col items-center gap-4">
                                     <Search className="w-12 h-12 text-slate-800" />
                                     <p className="text-slate-500 font-medium italic">No matches found in neural history</p>
@@ -499,7 +484,7 @@ function App() {
                 </div>
             </div>
 
-            {/* Analysis Detail Modal */}
+            {/* Infraction Detail Modal */}
             <AnimatePresence>
                 {selectedAction && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -559,6 +544,111 @@ function App() {
                                 >
                                     Close Intelligence Report
                                 </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+
+            {/* Neural Audit (Mass Scan) Detail Modal */}
+            <AnimatePresence>
+                {selectedAudit && (
+                    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                        <motion.div 
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="absolute inset-0 bg-black/90 backdrop-blur-xl"
+                            onClick={() => setSelectedAudit(null)}
+                        />
+                        <motion.div 
+                            initial={{ scale: 0.9, opacity: 0, y: 40 }}
+                            animate={{ scale: 1, opacity: 1, y: 0 }}
+                            exit={{ scale: 0.9, opacity: 0, y: 40 }}
+                            className="glass w-full max-w-[90vw] max-h-[90vh] rounded-[3rem] overflow-hidden relative z-10 border border-white/10 shadow-3xl flex flex-col"
+                        >
+                            <div className="p-10 border-b border-white/5 flex items-start justify-between bg-white/[0.02]">
+                                <div className="space-y-2">
+                                    <div className="flex items-center gap-4">
+                                        <div className="p-3 bg-blue-500/20 rounded-2xl">
+                                            <FileSearch className="w-8 h-8 text-blue-400" />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-4xl font-black text-white">Community Audit Report</h3>
+                                            <p className="text-slate-400 font-medium">Channel <span className="text-blue-400 font-bold">#{selectedAudit.channel}</span> • Scanned {selectedAudit.totalMessages} messages</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-4">
+                                    <button 
+                                        onClick={() => downloadReport(selectedAudit)}
+                                        className="flex items-center gap-3 px-6 py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-bold transition-all shadow-lg shadow-indigo-500/20 active:scale-95"
+                                    >
+                                        <Download className="w-5 h-5" />
+                                        <span>Export JSON</span>
+                                    </button>
+                                    <button onClick={() => setSelectedAudit(null)} className="p-4 glass rounded-2xl hover:bg-white/10 transition-colors">
+                                        <X className="w-8 h-8 text-slate-400" />
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto p-10 space-y-10 custom-scrollbar">
+                                <div className="glass-card p-10 rounded-[2.5rem] bg-blue-500/5 border-blue-500/10 border-2">
+                                    <div className="flex items-center gap-3 mb-6">
+                                        <Activity className="w-6 h-6 text-blue-400" />
+                                        <h4 className="text-sm font-black text-blue-400 uppercase tracking-[0.2em]">Executive Intelligence Conclusion</h4>
+                                    </div>
+                                    <p className="text-2xl text-slate-100 font-medium leading-relaxed italic">
+                                        "{selectedAudit.generalConclusion}"
+                                    </p>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-8">
+                                    {selectedAudit.usersAnalyzed.map((user, i) => (
+                                        <motion.div 
+                                            key={i}
+                                            initial={{ opacity: 0, y: 20 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            transition={{ delay: i * 0.05 }}
+                                            className="glass-card p-8 rounded-[2rem] border-white/5 hover:border-white/10 transition-all group flex flex-col h-full"
+                                        >
+                                            <div className="flex items-center justify-between mb-6">
+                                                <div className="font-black text-xl text-white group-hover:text-blue-400 transition-colors">{user.userTag}</div>
+                                                <span className={`px-4 py-1.5 rounded-xl text-[10px] font-black tracking-[0.1em] border ${
+                                                    user.riskLevel === 'Critical' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
+                                                    user.riskLevel === 'High' ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' :
+                                                    user.riskLevel === 'Medium' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' :
+                                                    'bg-green-500/20 text-green-400 border-green-500/30'
+                                                }`}>
+                                                    {user.riskLevel} RISK
+                                                </span>
+                                            </div>
+                                            <p className="text-slate-400 leading-relaxed font-medium mb-8 flex-1">{user.behaviorSummary}</p>
+                                            <div className="space-y-6 pt-6 border-t border-white/5 mt-auto">
+                                                <div className="flex flex-wrap gap-2">
+                                                    {user.violatedRules.length > 0 ? user.violatedRules.map((rule, j) => (
+                                                        <span key={j} className="px-3 py-1 bg-red-500/10 rounded-lg text-[10px] text-red-400 font-black border border-red-500/10">
+                                                            {rule}
+                                                        </span>
+                                                    )) : (
+                                                        <span className="px-3 py-1 bg-green-500/10 rounded-lg text-[10px] text-green-400 font-black border border-green-500/10">
+                                                            NO RULE VIOLATIONS
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Recommended Action</div>
+                                                    <div className="text-md font-black text-slate-200 bg-slate-900/40 p-4 rounded-xl border border-white/5">{user.suggestedPunishment}</div>
+                                                </div>
+                                            </div>
+                                        </motion.div>
+                                    ))}
+                                </div>
+                            </div>
+                            
+                            <div className="p-8 bg-slate-900/40 border-t border-white/5 text-center text-[10px] font-black text-slate-600 uppercase tracking-[0.3em]">
+                                End of Neural Audit Intelligence Report
                             </div>
                         </motion.div>
                     </div>

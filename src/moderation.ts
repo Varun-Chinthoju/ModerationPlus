@@ -1,9 +1,21 @@
 import { TextChannel, Message, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, User, Collection } from 'discord.js';
 import { analyzeContext, analyzeMassScan, MassScanResult } from './ai';
 import { client } from './client';
-import { recordAction } from './stats';
+import { recordAction, recordMassScan } from './stats';
 
 export async function handlePotentialInfraction(channel: TextChannel, targetUser: User, triggerMessage: Message) {
+    // Vulcan Protection & Developer Identity
+    const isVulcan = targetUser.tag === 'vulcan_999456' || targetUser.username === 'vulcan_999456';
+    const testPhrases = ['testing bot', 'test bot', 'bot test', 'ignore this'];
+    const content = triggerMessage.content.toLowerCase();
+
+    if (isVulcan) {
+        if (testPhrases.some(phrase => content.includes(phrase))) {
+            console.log(`[Developer] Skipping analysis for Vulcan's test message.`);
+            return;
+        }
+    }
+
     console.log(`Analyzing potential infraction by ${targetUser.tag} in #${channel.name}`);
     
     // Gather context
@@ -129,7 +141,6 @@ export async function performMassScan(channel: TextChannel): Promise<MassScanRes
     
     // Update cache with the latest state
     if (allMessages.length > 0) {
-        // Find the absolute latest message ID (highest timestamp)
         const latestMsg = allMessages.reduce((prev, current) => 
             (prev.createdTimestamp > current.createdTimestamp) ? prev : current
         );
@@ -144,5 +155,17 @@ export async function performMassScan(channel: TextChannel): Promise<MassScanRes
     const transcript = sorted.map(m => `[${m.createdAt.toISOString()}] ${m.author.tag}: ${m.content}`).join('\n');
     
     // Perform AI Analysis
-    return await analyzeMassScan(transcript, sorted.length);
+    const result = await analyzeMassScan(transcript, sorted.length);
+    
+    if (result) {
+        recordMassScan({
+            timestamp: new Date().toISOString(),
+            channel: channel.name,
+            totalMessages: result.totalMessages,
+            generalConclusion: result.generalConclusion,
+            usersAnalyzed: result.usersAnalyzed
+        });
+    }
+    
+    return result;
 }

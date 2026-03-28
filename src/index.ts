@@ -5,7 +5,7 @@ import { client } from './client';
 import { fetchRules } from './rules';
 import { handlePotentialInfraction, performMassScan } from './moderation';
 import { registerCommands } from './register';
-import { getStats, recordTimeout, recordAccess } from './stats';
+import { getStats, recordTimeout, recordAccess, clearLogs, clearAccessLogs } from './stats';
 
 // Initialize Express for Dashboard API
 const app = express();
@@ -28,6 +28,24 @@ app.get('/api/stats', (req, res) => {
         return res.status(401).json({ error: 'Unauthorized' });
     }
     res.json(getStats());
+});
+
+app.delete('/api/dev/clear', (req, res) => {
+    const devKey = req.headers['x-dev-key'];
+    if (!process.env.DEV_KEY || devKey !== process.env.DEV_KEY) {
+        return res.status(403).json({ error: 'Forbidden: Invalid Developer Key' });
+    }
+
+    const { target } = req.body; // 'logs' or 'access'
+    if (target === 'logs') {
+        clearLogs();
+        res.json({ success: true, message: 'Neural monitoring logs cleared' });
+    } else if (target === 'access') {
+        clearAccessLogs();
+        res.json({ success: true, message: 'Access logs cleared' });
+    } else {
+        res.status(400).json({ error: 'Invalid clear target' });
+    }
 });
 
 app.get('/api/channels', async (req, res) => {
