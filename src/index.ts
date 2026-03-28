@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Partials, Events, TextChannel } from 'discord.js';
+import { Client, GatewayIntentBits, Partials, Events, TextChannel, MessageFlags } from 'discord.js';
 import { GoogleGenAI } from '@google/genai';
 import * as dotenv from 'dotenv';
 import express from 'express';
@@ -80,68 +80,76 @@ client.on(Events.MessageCreate, async (message) => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
-    if (interaction.isChatInputCommand()) {
-        if (interaction.commandName === 'refresh-rules') {
-            if (!interaction.memberPermissions?.has('Administrator')) {
-                await interaction.reply({ content: 'You do not have permission to use this.', ephemeral: true });
-                return;
+    try {
+        if (interaction.isChatInputCommand()) {
+            if (interaction.commandName === 'refresh-rules') {
+                if (!interaction.memberPermissions?.has('Administrator')) {
+                    await interaction.reply({ content: 'You do not have permission to use this.', flags: [MessageFlags.Ephemeral] });
+                    return;
+                }
+                if (process.env.RULES_CHANNEL_ID) {
+                    await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
+                    await fetchRules(process.env.RULES_CHANNEL_ID);
+                    await interaction.editReply('Rules successfully refreshed!');
+                } else {
+                    await interaction.reply({ content: 'RULES_CHANNEL_ID not set.', flags: [MessageFlags.Ephemeral] });
+                }
             }
-            if (process.env.RULES_CHANNEL_ID) {
-                await interaction.deferReply({ ephemeral: true });
-                await fetchRules(process.env.RULES_CHANNEL_ID);
-                await interaction.editReply('Rules successfully refreshed!');
-            } else {
-                await interaction.reply({ content: 'RULES_CHANNEL_ID not set.', ephemeral: true });
-            }
-        }
-    }
-    
-    if (interaction.isMessageContextMenuCommand()) {
-        if (interaction.commandName === 'Analyze Context') {
-            if (!interaction.memberPermissions?.has('ManageMessages')) {
-                await interaction.reply({ content: 'You do not have permission to use this.', ephemeral: true });
-                return;
-            }
-            await interaction.deferReply({ ephemeral: true });
-            
-            const message = interaction.targetMessage;
-            if (message.channel.isTextBased()) {
-                await handlePotentialInfraction(message.channel as TextChannel, message.author, message as any);
-                await interaction.editReply('Analysis requested. Check the mod logs channel for results.');
-            } else {
-                await interaction.editReply('Could not analyze this channel.');
-            }
-        }
-    }
-
-    if (interaction.isButton()) {
-        if (interaction.customId.startsWith('dismiss_warning_')) {
-            await interaction.update({ content: 'Warning dismissed by ' + interaction.user.tag, components: [] });
-            return;
         }
         
-        if (interaction.customId.startsWith('approve_timeout_')) {
-            const parts = interaction.customId.split('_');
-            const targetUserId = parts[2];
-            const timeoutMinutesStr = parts[3];
-            
-            if (!interaction.guild || !targetUserId || !timeoutMinutesStr) return;
-            const timeoutMinutes = parseInt(timeoutMinutesStr, 10);
-            
-            try {
-                const member = await interaction.guild.members.fetch(targetUserId);
-                if (member) {
-                    await member.timeout(timeoutMinutes * 60 * 1000, `AI Moderation approved by ${interaction.user.tag}`);
-                    recordTimeout();
-                    await interaction.update({ content: `Timeout of ${timeoutMinutes}m applied to <@${targetUserId}> by ${interaction.user.tag}.`, components: [] });
-                } else {
-                    await interaction.update({ content: `User not found in server.`, components: [] });
+        if (interaction.isMessageContextMenuCommand()) {
+            if (interaction.commandName === 'Analyze Context') {
+                if (!interaction.memberPermissions?.has('ManageMessages')) {
+                    await interaction.reply({ content: 'You do not have permission to use this.', flags: [MessageFlags.Ephemeral] });
+                    return;
                 }
-            } catch (err) {
-                console.error(err);
-                await interaction.reply({ content: 'Failed to apply timeout. Check my permissions.', ephemeral: true });
+                await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
+                
+                const message = interaction.targetMessage;
+                if (message.channel.isTextBased()) {
+                    await handlePotentialInfraction(message.channel as TextChannel, message.author, message as any);
+                    await interaction.editReply('Analysis requested. Check the mod logs channel for results.');
+                } else {
+                    await interaction.editReply('Could not analyze this channel.');
+                }
             }
         }
+
+        if (interaction.isButton()) {
+            if (interaction.customId.startsWith('dismiss_warning_')) {
+                await interaction.update({ content: 'Warning dismissed by ' + interaction.user.tag, components: [] });
+                return;
+            }
+            
+            if (interaction.customId.startsWith('approve_timeout_')) {
+                const parts = interaction.customId.split('_');
+                const targetUserId = parts[2];
+                const timeoutMinutesStr = parts[3];
+                
+                if (!interaction.guild || !targetUserId || !timeoutMinutesStr) return;
+                const timeoutMinutes = parseInt(timeoutMinutesStr, 10);
+                
+                try {
+                    const member = await interaction.guild.members.fetch(targetUserId);
+                    if (member) {
+                        await member.timeout(timeoutMinutes * 60 * 1000, `AI Moderation approved by ${interaction.user.tag}`);
+                        recordTimeout();
+                        await interaction.update({ content: `Timeout of ${timeoutMinutes}m applied to <@${targetUserId}> by ${interaction.user.tag}.`, components: [] });
+                    } else {
+                        await interaction.update({ content: `User not found in server.`, components: [] });
+                    }
+                } catch (err) {
+                    console.error(err);
+                    if (interaction.deferred || interaction.replied) {
+                        await interaction.followUp({ content: 'Failed to apply timeout. Check my permissions.', flags: [MessageFlags.Ephemeral] });
+                    } else {
+                        await interaction.reply({ content: 'Failed to apply timeout. Check my permissions.', flags: [MessageFlags.Ephemeral] });
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Interaction Error:', error);
     }
 });
 
