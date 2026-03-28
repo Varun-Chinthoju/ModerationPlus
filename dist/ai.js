@@ -27,7 +27,7 @@ Return your evaluation as a JSON object with the following exact schema:
     "detailedAnalysis": string // A detailed explanation referencing the specific rule broken and why the context proves it.
 }`;
         const response = await client_1.ai.models.generateContent({
-            model: 'gemini-1.5-flash',
+            model: 'gemini-3.1-flash-lite-preview',
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
@@ -78,7 +78,7 @@ Return your evaluation as a JSON object with the following exact schema:
     "generalConclusion": string
 }`;
         const response = await client_1.ai.models.generateContent({
-            model: 'gemini-1.5-flash',
+            model: 'gemini-2.0-flash-lite-preview-02-05',
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
