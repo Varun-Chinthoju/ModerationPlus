@@ -32,20 +32,47 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ai = exports.client = void 0;
 const discord_js_1 = require("discord.js");
 const genai_1 = require("@google/genai");
 const dotenv = __importStar(require("dotenv"));
+const express_1 = __importDefault(require("express"));
+const cors_1 = __importDefault(require("cors"));
 const rules_1 = require("./rules");
 const moderation_1 = require("./moderation");
 const register_1 = require("./register");
+const stats_1 = require("./stats");
 dotenv.config();
 // Ensure required environment variables are set
 if (!process.env.DISCORD_TOKEN)
     throw new Error("DISCORD_TOKEN is missing in .env");
 if (!process.env.GEMINI_API_KEY)
     throw new Error("GEMINI_API_KEY is missing in .env");
+// Initialize Express for Dashboard API
+const app = (0, express_1.default)();
+app.use((0, cors_1.default)());
+app.use(express_1.default.json());
+app.get('/api/stats', (req, res) => {
+    const key = req.headers['x-api-key'];
+    const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+    const isAuthorized = key === process.env.DASHBOARD_KEY;
+    // Record the access attempt
+    (0, stats_1.recordAccess)({
+        timestamp: new Date().toISOString(),
+        ip: Array.isArray(ip) ? ip[0] : ip,
+        success: isAuthorized
+    });
+    if (!isAuthorized) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+    res.json((0, stats_1.getStats)());
+});
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`API Dashboard server running on port ${PORT}`));
 // Initialize the Discord client
 exports.client = new discord_js_1.Client({
     intents: [
@@ -129,6 +156,7 @@ exports.client.on(discord_js_1.Events.InteractionCreate, async (interaction) => 
                 const member = await interaction.guild.members.fetch(targetUserId);
                 if (member) {
                     await member.timeout(timeoutMinutes * 60 * 1000, `AI Moderation approved by ${interaction.user.tag}`);
+                    (0, stats_1.recordTimeout)();
                     await interaction.update({ content: `Timeout of ${timeoutMinutes}m applied to <@${targetUserId}> by ${interaction.user.tag}.`, components: [] });
                 }
                 else {

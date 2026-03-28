@@ -4,6 +4,7 @@ exports.handlePotentialInfraction = handlePotentialInfraction;
 const discord_js_1 = require("discord.js");
 const ai_1 = require("./ai");
 const index_1 = require("./index");
+const stats_1 = require("./stats");
 async function handlePotentialInfraction(channel, targetUser, triggerMessage) {
     console.log(`Analyzing potential infraction by ${targetUser.tag} in #${channel.name}`);
     // Gather context
@@ -18,6 +19,15 @@ async function handlePotentialInfraction(channel, targetUser, triggerMessage) {
         console.error("Analysis failed.");
         return;
     }
+    // Record the action for the dashboard
+    (0, stats_1.recordAction)({
+        timestamp: new Date().toISOString(),
+        targetUser: targetUser.tag,
+        channel: channel.name,
+        violation: analysis.violation,
+        reason: analysis.shortReason,
+        analysis: analysis.detailedAnalysis
+    });
     if (!analysis.violation) {
         console.log(`No violation detected for ${targetUser.tag} after AI review.`);
         return;
