@@ -1,15 +1,44 @@
 import { Client, GatewayIntentBits, Partials, Events, TextChannel } from 'discord.js';
 import { GoogleGenAI } from '@google/genai';
 import * as dotenv from 'dotenv';
+import express from 'express';
+import cors from 'cors';
 import { fetchRules } from './rules';
 import { handlePotentialInfraction } from './moderation';
 import { registerCommands } from './register';
+import { getStats, recordTimeout, recordAccess } from './stats';
 
 dotenv.config();
 
 // Ensure required environment variables are set
 if (!process.env.DISCORD_TOKEN) throw new Error("DISCORD_TOKEN is missing in .env");
 if (!process.env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is missing in .env");
+
+// Initialize Express for Dashboard API
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+app.get('/api/stats', (req, res) => {
+    const key = req.headers['x-api-key'];
+    const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+    const isAuthorized = key === process.env.DASHBOARD_KEY;
+
+    // Record the access attempt
+    recordAccess({
+        timestamp: new Date().toISOString(),
+        ip: Array.isArray(ip) ? ip[0] : ip,
+        success: isAuthorized
+    });
+
+    if (!isAuthorized) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+    res.json(getStats());
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`API Dashboard server running on port ${PORT}`));
 
 // Initialize the Discord client
 export const client = new Client({
@@ -106,22 +135,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     recordTimeout();
                     await interaction.update({ content: `Timeout of ${timeoutMinutes}m applied to <@${targetUserId}> by ${interaction.user.tag}.`, components: [] });
                 } else {
-                    await interaction.update({ content: `User not found in server.`, components: [] });
-                }
-            } catch (err) {
-                console.error(err);
-                await interaction.reply({ content: 'Failed to apply timeout. Check my permissions.', ephemeral: true });
-            }
-        }
-    }
-});
-
-// Basic error handling
-process.on('unhandledRejection', error => {
-	console.error('Unhandled promise rejection:', error);
-});
-
-client.login(process.env.DISCORD_TOKEN);        } else {
                     await interaction.update({ content: `User not found in server.`, components: [] });
                 }
             } catch (err) {

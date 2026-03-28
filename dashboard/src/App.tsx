@@ -11,12 +11,19 @@ interface ModerationAction {
     analysis: string;
 }
 
+interface AccessLog {
+    timestamp: string;
+    ip: string;
+    success: boolean;
+}
+
 interface BotStats {
     totalEvaluations: number;
     totalViolations: number;
     totalTimeouts: number;
     uptime: number;
     lastActions: ModerationAction[];
+    accessLogs: AccessLog[];
 }
 
 function App() {
@@ -151,44 +158,72 @@ function App() {
                     <StatCard icon={<User className="text-green-400" />} label="Total Timeouts" value={stats?.totalTimeouts ?? '--'} color="green" />
                 </div>
 
-                {/* Logs Table */}
-                <div className="glass rounded-3xl overflow-hidden">
-                    <div className="p-6 border-b border-white/5 flex items-center justify-between">
-                        <h2 className="text-xl font-bold text-white">Moderation Logs</h2>
-                        <span className="text-xs bg-white/5 px-3 py-1 rounded-full text-slate-400 uppercase tracking-wider">Live Feed</span>
-                    </div>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left">
-                            <thead className="bg-white/5 text-slate-400 text-xs uppercase">
-                                <tr>
-                                    <th className="px-6 py-4">Timestamp</th>
-                                    <th className="px-6 py-4">User</th>
-                                    <th className="px-6 py-4">Channel</th>
-                                    <th className="px-6 py-4">Result</th>
-                                    <th className="px-6 py-4">Reason</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-white/5">
-                                {stats?.lastActions.map((action, i) => (
-                                    <tr key={i} className="hover:bg-white/5 transition-colors group cursor-help" title={action.analysis}>
-                                        <td className="px-6 py-4 text-sm text-slate-500">{new Date(action.timestamp).toLocaleTimeString()}</td>
-                                        <td className="px-6 py-4 font-medium text-slate-200">{action.targetUser}</td>
-                                        <td className="px-6 py-4 text-slate-400">#{action.channel}</td>
-                                        <td className="px-6 py-4">
-                                            <span className={`px-3 py-1 rounded-lg text-xs font-bold ${action.violation ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}>
-                                                {action.violation ? 'VIOLATION' : 'CLEAN'}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4 text-sm text-slate-400 italic truncate max-w-xs">{action.reason}</td>
-                                    </tr>
-                                ))}
-                                {stats?.lastActions.length === 0 && (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    {/* Logs Table */}
+                    <div className="lg:col-span-2 glass rounded-3xl overflow-hidden">
+                        <div className="p-6 border-b border-white/5 flex items-center justify-between">
+                            <h2 className="text-xl font-bold text-white">Moderation Logs</h2>
+                            <span className="text-xs bg-white/5 px-3 py-1 rounded-full text-slate-400 uppercase tracking-wider">Live Feed</span>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left">
+                                <thead className="bg-white/5 text-slate-400 text-xs uppercase">
                                     <tr>
-                                        <td colSpan={5} className="px-6 py-12 text-center text-slate-500">No recent moderation activity found.</td>
+                                        <th className="px-6 py-4">Timestamp</th>
+                                        <th className="px-6 py-4">User</th>
+                                        <th className="px-6 py-4">Channel</th>
+                                        <th className="px-6 py-4">Result</th>
+                                        <th className="px-6 py-4">Reason</th>
                                     </tr>
-                                )}
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody className="divide-y divide-white/5">
+                                    {stats?.lastActions.map((action, i) => (
+                                        <tr key={i} className="hover:bg-white/5 transition-colors group cursor-help" title={action.analysis}>
+                                            <td className="px-6 py-4 text-sm text-slate-500">{new Date(action.timestamp).toLocaleTimeString()}</td>
+                                            <td className="px-6 py-4 font-medium text-slate-200">{action.targetUser}</td>
+                                            <td className="px-6 py-4 text-slate-400">#{action.channel}</td>
+                                            <td className="px-6 py-4">
+                                                <span className={`px-3 py-1 rounded-lg text-xs font-bold ${action.violation ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}>
+                                                    {action.violation ? 'VIOLATION' : 'CLEAN'}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 text-sm text-slate-400 italic truncate max-w-xs">{action.reason}</td>
+                                        </tr>
+                                    ))}
+                                    {stats?.lastActions.length === 0 && (
+                                        <tr>
+                                            <td colSpan={5} className="px-6 py-12 text-center text-slate-500">No recent moderation activity found.</td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    {/* Access Timeline */}
+                    <div className="glass rounded-3xl p-6">
+                        <div className="flex items-center justify-between mb-6">
+                            <h2 className="text-xl font-bold text-white">Access Timeline</h2>
+                            <Key className="w-5 h-5 text-slate-500" />
+                        </div>
+                        <div className="space-y-6">
+                            {stats?.accessLogs.map((log, i) => (
+                                <div key={i} className="relative pl-6 border-l-2 border-white/5">
+                                    <div className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 border-[#0f172a] ${log.success ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                                    <div className="text-sm font-bold text-slate-200">{log.ip}</div>
+                                    <div className="text-xs text-slate-500 flex items-center gap-2">
+                                        <Clock className="w-3 h-3" />
+                                        {new Date(log.timestamp).toLocaleString()}
+                                    </div>
+                                    <div className={`text-[10px] mt-1 font-bold uppercase tracking-widest ${log.success ? 'text-green-500/60' : 'text-red-500/60'}`}>
+                                        {log.success ? 'Authorized Access' : 'Invalid API Key'}
+                                    </div>
+                                </div>
+                            ))}
+                            {stats?.accessLogs.length === 0 && (
+                                <div className="text-center text-slate-500 py-8">No access logs recorded.</div>
+                            )}
+                        </div>
                     </div>
                 </div>
                 {error && <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-2xl text-center">{error}</div>}

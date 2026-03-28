@@ -4,6 +4,13 @@ export interface BotStats {
     totalTimeouts: number;
     startTime: number;
     lastActions: ModerationAction[];
+    accessLogs: AccessLog[];
+}
+
+export interface AccessLog {
+    timestamp: string;
+    ip: string;
+    success: boolean;
 }
 
 export interface ModerationAction {
@@ -18,9 +25,10 @@ export interface ModerationAction {
 const stats: BotStats = {
     totalEvaluations: 0,
     totalViolations: 0,
-    totalTimeouts: Date.now(),
+    totalTimeouts: 0,
     startTime: Date.now(),
-    lastActions: []
+    lastActions: [],
+    accessLogs: []
 };
 
 export function recordAction(action: ModerationAction) {
@@ -28,6 +36,11 @@ export function recordAction(action: ModerationAction) {
     if (action.violation) stats.totalViolations++;
     stats.lastActions.unshift(action);
     if (stats.lastActions.length > 50) stats.lastActions.pop();
+}
+
+export function recordAccess(log: AccessLog) {
+    stats.accessLogs.unshift(log);
+    if (stats.accessLogs.length > 20) stats.accessLogs.pop();
 }
 
 export function recordTimeout() {
