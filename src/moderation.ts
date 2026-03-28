@@ -1,6 +1,7 @@
 import { TextChannel, Message, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, User } from 'discord.js';
 import { analyzeContext } from './ai';
 import { client } from './index';
+import { recordAction } from './stats';
 
 export async function handlePotentialInfraction(channel: TextChannel, targetUser: User, triggerMessage: Message) {
     console.log(`Analyzing potential infraction by ${targetUser.tag} in #${channel.name}`);
@@ -21,6 +22,16 @@ export async function handlePotentialInfraction(channel: TextChannel, targetUser
         console.error("Analysis failed.");
         return;
     }
+
+    // Record the action for the dashboard
+    recordAction({
+        timestamp: new Date().toISOString(),
+        targetUser: targetUser.tag,
+        channel: channel.name,
+        violation: analysis.violation,
+        reason: analysis.shortReason,
+        analysis: analysis.detailedAnalysis
+    });
     
     if (!analysis.violation) {
         console.log(`No violation detected for ${targetUser.tag} after AI review.`);

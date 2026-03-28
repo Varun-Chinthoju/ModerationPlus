@@ -103,8 +103,25 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 const member = await interaction.guild.members.fetch(targetUserId);
                 if (member) {
                     await member.timeout(timeoutMinutes * 60 * 1000, `AI Moderation approved by ${interaction.user.tag}`);
+                    recordTimeout();
                     await interaction.update({ content: `Timeout of ${timeoutMinutes}m applied to <@${targetUserId}> by ${interaction.user.tag}.`, components: [] });
                 } else {
+                    await interaction.update({ content: `User not found in server.`, components: [] });
+                }
+            } catch (err) {
+                console.error(err);
+                await interaction.reply({ content: 'Failed to apply timeout. Check my permissions.', ephemeral: true });
+            }
+        }
+    }
+});
+
+// Basic error handling
+process.on('unhandledRejection', error => {
+	console.error('Unhandled promise rejection:', error);
+});
+
+client.login(process.env.DISCORD_TOKEN);        } else {
                     await interaction.update({ content: `User not found in server.`, components: [] });
                 }
             } catch (err) {
