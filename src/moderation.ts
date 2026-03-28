@@ -3,7 +3,7 @@ import { analyzeContext, analyzeMassScan, MassScanResult } from './ai';
 import { client } from './client';
 import { recordAction, recordMassScan } from './stats';
 
-export async function handlePotentialInfraction(channel: TextChannel, targetUser: User, triggerMessage: Message) {
+export async function handlePotentialInfraction(channel: TextChannel, targetUser: User, triggerMessage: Message, isProactive: boolean = false) {
     // Vulcan Protection & Developer Identity
     const isVulcan = targetUser.tag === 'vulcan_999456' || targetUser.username === 'vulcan_999456';
     const testPhrases = ['testing bot', 'test bot', 'bot test', 'ignore this'];
@@ -16,7 +16,7 @@ export async function handlePotentialInfraction(channel: TextChannel, targetUser
         }
     }
 
-    console.log(`Analyzing potential infraction by ${targetUser.tag} in #${channel.name}`);
+    console.log(`${isProactive ? '[Proactive]' : '[Triggered]'} Analyzing ${targetUser.tag} in #${channel.name}`);
     
     // Fetch member to get roles
     let roles: string[] = [];
@@ -44,7 +44,7 @@ export async function handlePotentialInfraction(channel: TextChannel, targetUser
         return;
     }
 
-    // Record the action for the dashboard
+    // Record the action for the dashboard (ALWAYS log for history)
     recordAction({
         timestamp: new Date().toISOString(),
         targetUser: targetUser.tag,
@@ -52,15 +52,16 @@ export async function handlePotentialInfraction(channel: TextChannel, targetUser
         channel: channel.name,
         violation: analysis.violation,
         reason: analysis.shortReason,
-        analysis: analysis.detailedAnalysis
+        analysis: analysis.detailedAnalysis,
+        type: analysis.violation ? 'INFRACTION' : 'NORMAL' // Correctly type the log
     });
     
     if (!analysis.violation) {
-        console.log(`No violation detected for ${targetUser.tag} after AI review.`);
+        console.log(`[Neural Profiling] Logged normal interaction for ${targetUser.tag}: ${analysis.socialProfile}`);
         return;
     }
     
-    // Send to mod logs
+    // Send to mod logs (Only for actual violations)
     const modLogsChannelId = process.env.MOD_LOGS_CHANNEL_ID;
     if (!modLogsChannelId) return;
     
@@ -75,6 +76,7 @@ export async function handlePotentialInfraction(channel: TextChannel, targetUser
         .addFields(
             { name: 'Channel', value: `<#${channel.id}>`, inline: true },
             { name: 'User Roles', value: roles.join(', ') || 'None', inline: true },
+            { name: 'Behavior Profile', value: analysis.socialProfile },
             { name: 'Suggested Timeout', value: `${analysis.timeoutMinutes} minutes`, inline: true },
             { name: 'Short Reason', value: analysis.shortReason },
             { name: 'Detailed Analysis', value: analysis.detailedAnalysis }
@@ -105,6 +107,13 @@ interface ChannelCache {
 const massScanCache = new Map<string, ChannelCache>();
 
 export async function performMassScan(channel: TextChannel): Promise<MassScanResult | null> {
+    // Permission Check
+    const permissions = channel.permissionsFor(client.user!);
+    if (!permissions || !permissions.has('ViewChannel') || !permissions.has('ReadMessageHistory')) {
+        console.error(`[Access] Missing permissions to scan #${channel.name}`);
+        return null;
+    }
+
     console.log(`Starting mass scan for channel: #${channel.name}`);
     
     let currentCache = massScanCache.get(channel.id);

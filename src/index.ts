@@ -112,6 +112,13 @@ app.post('/api/dev/private-scan', async (req, res) => {
         }
 
         const textChannel = channel as TextChannel;
+
+        // Permission Check
+        const permissions = textChannel.permissionsFor(client.user!);
+        if (!permissions || !permissions.has('ViewChannel') || !permissions.has('ReadMessageHistory')) {
+            return res.status(403).json({ error: 'Forbidden: Missing Bot Permissions for this channel' });
+        }
+
         const messages = await textChannel.messages.fetch({ limit: 100 });
         
         // Ensure members are fetched so roles are available
