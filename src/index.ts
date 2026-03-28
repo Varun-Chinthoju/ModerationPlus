@@ -14,17 +14,17 @@ app.use(express.json());
 
 app.get('/api/stats', (req, res) => {
     const key = req.headers['x-api-key'];
-    const devKey = req.headers['x-dev-key'];
     const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
     
-    const isAuthorized = key === process.env.DASHBOARD_KEY;
-    const isDev = process.env.DEV_KEY && devKey === process.env.DEV_KEY;
+    const isDashboardKey = key === process.env.DASHBOARD_KEY;
+    const isDevKey = process.env.DEV_KEY && key === process.env.DEV_KEY;
+    const isAuthorized = isDashboardKey || isDevKey;
 
     // Record the access attempt
     recordAccess({
         timestamp: new Date().toISOString(),
         ip: Array.isArray(ip) ? ip[0] : ip,
-        success: isAuthorized
+        success: !!isAuthorized
     });
 
     if (!isAuthorized) {
@@ -33,26 +33,19 @@ app.get('/api/stats', (req, res) => {
     
     res.json({
         ...getStats(),
-        isDev: !!isDev
+        isDev: !!isDevKey
     });
 });
 
 app.delete('/api/dev/clear', (req, res) => {
-    const apiKey = req.headers['x-api-key'];
-    const devKey = req.headers['x-dev-key'];
-
-    const isAuthorized = apiKey === process.env.DASHBOARD_KEY;
-    const isDevAuthorized = process.env.DEV_KEY && devKey === process.env.DEV_KEY;
-
-    if (!isAuthorized) {
-        return res.status(401).json({ error: 'Unauthorized: Invalid Dashboard Key' });
-    }
+    const key = req.headers['x-api-key'];
+    const isDevAuthorized = process.env.DEV_KEY && key === process.env.DEV_KEY;
 
     if (!isDevAuthorized) {
-        return res.status(403).json({ error: 'Forbidden: Invalid Developer Key' });
+        return res.status(403).json({ error: 'Forbidden: Developer Key Required' });
     }
 
-    const { target } = req.body; // 'logs' or 'access'
+    const { target } = req.body;
     if (target === 'logs') {
         clearLogs();
         res.json({ success: true, message: 'Neural monitoring logs cleared' });
@@ -66,7 +59,9 @@ app.delete('/api/dev/clear', (req, res) => {
 
 app.get('/api/channels', async (req, res) => {
     const key = req.headers['x-api-key'];
-    if (key !== process.env.DASHBOARD_KEY) {
+    const isAuthorized = key === process.env.DASHBOARD_KEY || (process.env.DEV_KEY && key === process.env.DEV_KEY);
+    
+    if (!isAuthorized) {
         console.log(`[API] Unauthorized channel fetch attempt from ${req.ip}`);
         return res.status(401).json({ error: 'Unauthorized' });
     }
@@ -98,7 +93,9 @@ app.get('/api/channels', async (req, res) => {
 
 app.post('/api/mass-scan', async (req, res) => {
     const key = req.headers['x-api-key'];
-    if (key !== process.env.DASHBOARD_KEY) {
+    const isAuthorized = key === process.env.DASHBOARD_KEY || (process.env.DEV_KEY && key === process.env.DEV_KEY);
+    
+    if (!isAuthorized) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
 

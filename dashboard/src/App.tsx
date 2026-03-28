@@ -59,7 +59,6 @@ interface Channel {
 
 function App() {
     const [apiKey, setApiKey] = useState(localStorage.getItem('dashboard_key') || '');
-    const [devKey, setDevKey] = useState(localStorage.getItem('dev_key') || '');
     const [botUrl, setBotUrl] = useState(localStorage.getItem('bot_url') || 'http://localhost:3000');
     const [isLoggedIn, setIsLoggedIn] = useState(!!localStorage.getItem('dashboard_key'));
     const [stats, setStats] = useState<BotStats | null>(null);
@@ -80,10 +79,7 @@ function App() {
         setLoading(true);
         try {
             const response = await axios.get(`${botUrl}/api/stats`, {
-                headers: { 
-                    'x-api-key': apiKey,
-                    'x-dev-key': devKey
-                }
+                headers: { 'x-api-key': apiKey }
             });
             setStats(response.data);
             setError('');
@@ -132,10 +128,7 @@ function App() {
 
         try {
             await axios.delete(`${botUrl}/api/dev/clear`, {
-                headers: { 
-                    'x-api-key': apiKey, 
-                    'x-dev-key': devKey 
-                },
+                headers: { 'x-api-key': apiKey },
                 data: { target }
             });
             fetchData();
@@ -161,19 +154,17 @@ function App() {
             const interval = setInterval(fetchData, 5000);
             return () => clearInterval(interval);
         }
-    }, [isLoggedIn, botUrl, apiKey, devKey]);
+    }, [isLoggedIn, botUrl, apiKey]);
 
     const handleLogin = (e: React.FormEvent) => {
         e.preventDefault();
         localStorage.setItem('dashboard_key', apiKey);
-        localStorage.setItem('dev_key', devKey);
         localStorage.setItem('bot_url', botUrl);
         setIsLoggedIn(true);
     };
 
     const handleLogout = () => {
         localStorage.removeItem('dashboard_key');
-        localStorage.removeItem('dev_key');
         setIsLoggedIn(false);
         setStats(null);
     };
@@ -245,29 +236,16 @@ function App() {
                                 />
                             </div>
                         </div>
-                        <div className="space-y-2">
-                            <label className="text-[10px] font-black text-slate-500 uppercase ml-1 tracking-widest">Access Token</label>
+                        <div className="space-y-2 pt-2 border-t border-white/5">
+                            <label className="text-[10px] font-black text-slate-500 uppercase ml-1 tracking-widest">Neural Access Key</label>
                             <div className="relative group">
                                 <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-600 group-focus-within:text-blue-400 transition-colors" />
                                 <input 
                                     type="password" 
-                                    placeholder="••••••••••••"
+                                    placeholder="Enter Token or Developer Key"
                                     className="w-full bg-slate-900/60 border border-white/5 rounded-2xl py-4 pl-12 pr-4 text-white focus:outline-none focus:border-blue-500/50 transition-all text-sm"
                                     value={apiKey}
                                     onChange={(e) => setApiKey(e.target.value)}
-                                />
-                            </div>
-                        </div>
-                        <div className="space-y-2 pt-2 border-t border-white/5">
-                            <label className="text-[10px] font-black text-red-500/50 uppercase ml-1 tracking-widest">Developer Identity (Optional)</label>
-                            <div className="relative group">
-                                <Cpu className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-700 group-focus-within:text-red-500 transition-colors" />
-                                <input 
-                                    type="password" 
-                                    placeholder="VULCAN-LEVEL-KEY"
-                                    className="w-full bg-red-950/10 border border-red-500/5 rounded-2xl py-4 pl-12 pr-4 text-red-200 focus:outline-none focus:border-red-500/30 transition-all text-sm placeholder:text-red-900/30"
-                                    value={devKey}
-                                    onChange={(e) => setDevKey(e.target.value)}
                                 />
                             </div>
                         </div>
@@ -309,7 +287,7 @@ function App() {
                             </div>
                             <div className="flex items-center gap-3 text-sm font-medium text-slate-400 mt-1">
                                 <span className={`flex h-2.5 w-2.5 rounded-full ${stats ? (isDevMode ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]') : 'bg-red-500 animate-pulse'}`}></span>
-                                {stats ? <span className="opacity-80 font-mono text-xs">CONNECTED TO NODE @ {botUrl}</span> : 'Disconnected'}
+                                {stats ? <span className="opacity-80 font-mono text-xs uppercase">Link Secured with {isDevMode ? 'Developer' : 'Standard'} Identity</span> : 'Disconnected'}
                             </div>
                         </div>
                     </div>
