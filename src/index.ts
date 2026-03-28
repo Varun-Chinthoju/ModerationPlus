@@ -14,8 +14,11 @@ app.use(express.json());
 
 app.get('/api/stats', (req, res) => {
     const key = req.headers['x-api-key'];
+    const devKey = req.headers['x-dev-key'];
     const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+    
     const isAuthorized = key === process.env.DASHBOARD_KEY;
+    const isDev = process.env.DEV_KEY && devKey === process.env.DEV_KEY;
 
     // Record the access attempt
     recordAccess({
@@ -27,7 +30,11 @@ app.get('/api/stats', (req, res) => {
     if (!isAuthorized) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
-    res.json(getStats());
+    
+    res.json({
+        ...getStats(),
+        isDev: !!isDev
+    });
 });
 
 app.delete('/api/dev/clear', (req, res) => {
