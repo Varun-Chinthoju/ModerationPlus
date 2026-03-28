@@ -78,7 +78,7 @@ Return your evaluation as a JSON object with the following exact schema:
     "generalConclusion": string
 }`;
         const response = await client_1.ai.models.generateContent({
-            model: 'gemini-2.0-flash-lite-preview-02-05',
+            model: 'gemini-3.1-flash-lite-preview',
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
