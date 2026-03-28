@@ -1,18 +1,11 @@
-import { Client, GatewayIntentBits, Partials, Events, TextChannel, MessageFlags } from 'discord.js';
-import { GoogleGenAI } from '@google/genai';
-import * as dotenv from 'dotenv';
+import { Events, TextChannel, MessageFlags } from 'discord.js';
 import express from 'express';
 import cors from 'cors';
+import { client } from './client';
 import { fetchRules } from './rules';
 import { handlePotentialInfraction, performMassScan } from './moderation';
 import { registerCommands } from './register';
 import { getStats, recordTimeout, recordAccess } from './stats';
-
-dotenv.config();
-
-// Ensure required environment variables are set
-if (!process.env.DISCORD_TOKEN) throw new Error("DISCORD_TOKEN is missing in .env");
-if (!process.env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is missing in .env");
 
 // Initialize Express for Dashboard API
 const app = express();
@@ -97,21 +90,6 @@ app.post('/api/mass-scan', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`API Dashboard server running on port ${PORT}`));
-
-// Initialize the Discord client
-export const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildModeration,
-    GatewayIntentBits.GuildMembers,
-  ],
-  partials: [Partials.Message, Partials.Channel],
-});
-
-// Initialize the Gemini AI client
-export const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 client.once(Events.ClientReady, async (readyClient) => {
   console.log(`Ready! Logged in as ${readyClient.user.tag}`);

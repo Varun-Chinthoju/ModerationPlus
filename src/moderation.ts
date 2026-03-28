@@ -1,6 +1,6 @@
 import { TextChannel, Message, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, User, Collection } from 'discord.js';
 import { analyzeContext, analyzeMassScan, MassScanResult } from './ai';
-import { client } from './index';
+import { client } from './client';
 import { recordAction } from './stats';
 
 export async function handlePotentialInfraction(channel: TextChannel, targetUser: User, triggerMessage: Message) {

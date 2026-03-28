@@ -1,4 +1,4 @@
-import { ai } from './index';
+import { ai } from './client';
 import { cachedRules } from './rules';
 
 export interface AnalysisResult {
