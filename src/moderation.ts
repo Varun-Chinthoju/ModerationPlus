@@ -74,26 +74,71 @@ export async function handlePotentialInfraction(channel: TextChannel, targetUser
     await textChannel.send({ embeds: [embed], components: [row] });
 }
 
+interface ChannelCache {
+    messages: Message[];
+    lastId: string;
+}
+
+const massScanCache = new Map<string, ChannelCache>();
+
 export async function performMassScan(channel: TextChannel): Promise<MassScanResult | null> {
     console.log(`Starting mass scan for channel: #${channel.name}`);
     
+    let currentCache = massScanCache.get(channel.id);
     let allMessages: Message[] = [];
-    let lastId: string | undefined;
     
-    // Fetch 500 messages in chunks of 100
-    for (let i = 0; i < 5; i++) {
-        const options: any = { limit: 100 };
-        if (lastId) options.before = lastId;
+    if (currentCache) {
+        console.log(`[Cache] Using ${currentCache.messages.length} cached messages for #${channel.name}`);
         
-        const fetched = await channel.messages.fetch(options) as unknown as Collection<string, Message>;
-        if (fetched.size === 0) break;
+        // Fetch new messages since the last scan
+        let newMessages: Message[] = [];
+        let afterId = currentCache.lastId;
         
-        allMessages = allMessages.concat(Array.from(fetched.values()));
-        lastId = fetched.last()?.id;
+        while (true) {
+            const fetched = await channel.messages.fetch({ limit: 100, after: afterId }) as unknown as Collection<string, Message>;
+            if (fetched.size === 0) break;
+            
+            newMessages = newMessages.concat(Array.from(fetched.values()));
+            afterId = fetched.first()?.id as string;
+            
+            if (newMessages.length >= 500) break; // Safety break
+        }
+        
+        console.log(`[Cache] Found ${newMessages.length} new messages.`);
+        
+        // Combine and keep the latest 500
+        allMessages = [...newMessages, ...currentCache.messages].slice(0, 500);
+    } else {
+        console.log(`[Cache] No cache found for #${channel.name}. Performing full fetch.`);
+        
+        let lastId: string | undefined;
+        for (let i = 0; i < 5; i++) {
+            const options: any = { limit: 100 };
+            if (lastId) options.before = lastId;
+            
+            const fetched = await channel.messages.fetch(options) as unknown as Collection<string, Message>;
+            if (fetched.size === 0) break;
+            
+            allMessages = allMessages.concat(Array.from(fetched.values()));
+            lastId = fetched.last()?.id;
+        }
     }
     
-    // Sort oldest to newest
-    const sorted = allMessages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+    // Sort oldest to newest for analysis
+    const sorted = [...allMessages].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+    
+    // Update cache with the latest state
+    if (allMessages.length > 0) {
+        // Find the absolute latest message ID (highest timestamp)
+        const latestMsg = allMessages.reduce((prev, current) => 
+            (prev.createdTimestamp > current.createdTimestamp) ? prev : current
+        );
+        
+        massScanCache.set(channel.id, {
+            messages: allMessages,
+            lastId: latestMsg.id
+        });
+    }
     
     // Format transcript
     const transcript = sorted.map(m => `[${m.createdAt.toISOString()}] ${m.author.tag}: ${m.content}`).join('\n');
