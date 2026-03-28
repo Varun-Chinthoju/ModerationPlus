@@ -40,19 +40,31 @@ app.get('/api/stats', (req, res) => {
 app.get('/api/channels', async (req, res) => {
     const key = req.headers['x-api-key'];
     if (key !== process.env.DASHBOARD_KEY) {
+        console.log(`[API] Unauthorized channel fetch attempt from ${req.ip}`);
         return res.status(401).json({ error: 'Unauthorized' });
     }
 
     try {
-        const guild = client.guilds.cache.first(); // Assuming single guild for simplicity, or we could pass guildId
-        if (!guild) return res.status(404).json({ error: 'Guild not found' });
+        // Fetch the guild to ensure it's in cache or get it fresh
+        const guilds = await client.guilds.fetch();
+        const firstGuildBase = guilds.first();
+        
+        if (!firstGuildBase) {
+            console.error("[API] Bot is not in any guilds.");
+            return res.status(404).json({ error: 'Bot is not in any guilds' });
+        }
 
-        const channels = guild.channels.cache
-            .filter(c => c.isTextBased() && !c.isThread())
-            .map(c => ({ id: c.id, name: c.name }));
+        const guild = await firstGuildBase.fetch();
+        const fetchedChannels = await guild.channels.fetch();
 
+        const channels = fetchedChannels
+            .filter(c => c !== null && c.isTextBased() && !c.isThread())
+            .map(c => ({ id: c!.id, name: (c as any).name }));
+
+        console.log(`[API] Fetched ${channels.length} channels for dashboard.`);
         res.json(channels);
     } catch (error) {
+        console.error('[API] Failed to fetch channels:', error);
         res.status(500).json({ error: 'Failed to fetch channels' });
     }
 });

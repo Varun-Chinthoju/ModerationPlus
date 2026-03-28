@@ -74,6 +74,8 @@ function App() {
             });
             setStats(response.data);
             setError('');
+            // Also refresh channels periodically or on manual refresh
+            fetchChannels();
         } catch (err: any) {
             setError(err.response?.data?.error || 'Failed to connect to bot.');
             if (err.response?.status === 401) setIsLoggedIn(false);
