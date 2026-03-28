@@ -5,7 +5,7 @@ import {
     Activity, ShieldAlert, Clock, User, ShieldCheck, 
     RefreshCw, Key, Settings, ChevronRight, 
     Terminal, Lock, LogOut, Search, Info, X, FileSearch, Download,
-    Cpu, Trash2, Database, AlertTriangle, Eye
+    Cpu, Trash2, Database, AlertTriangle, Eye, UserCircle
 } from 'lucide-react';
 
 interface ModerationAction {
@@ -16,7 +16,7 @@ interface ModerationAction {
     violation: boolean;
     reason: string;
     analysis: string;
-    type?: 'INFRACTION' | 'AUDIT';
+    type: 'INFRACTION' | 'AUDIT' | 'NORMAL'; // Explicit type from backend
     auditData?: MassScanResult;
 }
 
@@ -202,22 +202,25 @@ function App() {
     };
 
     const unifiedHistory = useMemo(() => {
-        const infractions = (stats?.lastActions || []).map(a => ({ ...a, type: 'INFRACTION' as const }));
+        // Correctly sort all historical events including the new NORMAL profiling logs
+        const history = [...(stats?.lastActions || [])];
         
-        // Only show historical audits if in developer mode
-        const audits = isDevMode ? (stats?.massScans || []).map(s => ({
-            timestamp: s.timestamp,
-            targetUser: 'COMMUNITY AUDIT',
-            targetRoles: [],
-            channel: s.channel,
-            violation: true,
-            reason: s.generalConclusion,
-            analysis: '',
-            type: 'AUDIT' as const,
-            auditData: s
-        })) : [];
+        if (isDevMode) {
+            const audits = (stats?.massScans || []).map(s => ({
+                timestamp: s.timestamp,
+                targetUser: 'COMMUNITY AUDIT',
+                targetRoles: [],
+                channel: s.channel,
+                violation: true,
+                reason: s.generalConclusion,
+                analysis: '',
+                type: 'AUDIT' as const,
+                auditData: s
+            }));
+            history.push(...(audits as any));
+        }
 
-        return [...infractions, ...audits].sort((a, b) => 
+        return history.sort((a, b) => 
             new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
         );
     }, [stats, isDevMode]);
@@ -446,7 +449,7 @@ function App() {
                                         {filteredHistory.map((action, i) => (
                                             <motion.tr key={action.timestamp + i} layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className={`group hover:bg-white/[0.02] transition-all cursor-pointer ${action.type === 'AUDIT' ? (isDevMode ? 'bg-red-500/5' : 'bg-blue-500/5') : ''}`} onClick={() => action.type === 'AUDIT' ? setSelectedAudit(action.auditData!) : setSelectedAction(action)}>
                                                 <td className="px-8 py-6">
-                                                    <div className={`font-black tracking-tight transition-colors ${action.type === 'AUDIT' ? (isDevMode ? 'text-red-400' : 'text-blue-400') : 'text-slate-200 group-hover:text-white'}`}>{action.targetUser}</div>
+                                                    <div className={`font-black tracking-tight transition-colors ${action.type === 'AUDIT' ? (isDevMode ? 'text-red-400' : 'text-blue-400') : (action.type === 'NORMAL' ? 'text-slate-400' : 'text-slate-200 group-hover:text-white')}`}>{action.targetUser}</div>
                                                     <div className="text-[10px] font-mono text-slate-600 mt-1 uppercase tracking-tighter">{new Date(action.timestamp).toLocaleString()}</div>
                                                 </td>
                                                 {isDevMode && (
@@ -461,13 +464,19 @@ function App() {
                                                 </td>
                                                 <td className="px-8 py-6">
                                                     <div className="flex justify-center">
-                                                        <span className={`px-4 py-1.5 rounded-lg text-[9px] font-black tracking-[0.2em] border ${action.type === 'AUDIT' ? `bg-${themeColor}-500/10 text-${themeColor}-400 border-${themeColor}-500/20` : action.violation ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-green-500/10 text-green-400 border-green-500/20'}`}>
-                                                            {action.type === 'AUDIT' ? 'COMMUNITY AUDIT' : action.violation ? 'MALICIOUS' : 'SECURE'}
+                                                        <span className={`px-4 py-1.5 rounded-lg text-[9px] font-black tracking-[0.2em] border ${
+                                                            action.type === 'AUDIT' ? `bg-${themeColor}-500/10 text-${themeColor}-400 border-${themeColor}-500/20` : 
+                                                            action.type === 'NORMAL' ? 'bg-slate-800/50 text-slate-500 border-slate-800' :
+                                                            action.violation ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-green-500/10 text-green-400 border-green-500/20'
+                                                        }`}>
+                                                            {action.type === 'AUDIT' ? 'COMMUNITY AUDIT' : action.type === 'NORMAL' ? 'NEURAL PROFILE' : action.violation ? 'MALICIOUS' : 'SECURE'}
                                                         </span>
                                                     </div>
                                                 </td>
                                                 <td className="px-8 py-6 max-w-xs">
-                                                    <p className={`text-xs italic line-clamp-1 font-medium ${action.type === 'AUDIT' ? (isDevMode ? 'text-red-200' : 'text-blue-200') : 'text-slate-500 group-hover:text-slate-300'}`}>{action.reason}</p>
+                                                    <p className={`text-xs italic line-clamp-1 font-medium ${action.type === 'AUDIT' ? (isDevMode ? 'text-red-200' : 'text-blue-200') : (action.type === 'NORMAL' ? 'text-slate-500' : 'text-slate-400 group-hover:text-slate-300')}`}>
+                                                        {action.reason}
+                                                    </p>
                                                 </td>
                                                 <td className="px-8 py-6 text-right">
                                                     <ChevronRight className={`w-5 h-5 text-slate-800 group-hover:${isDevMode ? 'text-red-400' : 'text-blue-400'} transition-all inline-block group-hover:translate-x-1`} />
@@ -503,7 +512,7 @@ function App() {
                 </div>
             </div>
 
-            {/* Infraction Modal */}
+            {/* Infraction / Profile Modal */}
             <AnimatePresence>
                 {selectedAction && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -513,8 +522,10 @@ function App() {
                                 <div className="flex items-start justify-between">
                                     <div className="space-y-2">
                                         <div className="flex items-center gap-3">
-                                            <span className={`w-3 h-3 rounded-full ${selectedAction.violation ? 'bg-red-500' : 'bg-green-500'}`}></span>
-                                            <h3 className="text-3xl font-black text-white uppercase tracking-tighter">Neural Intelligence</h3>
+                                            <span className={`w-3 h-3 rounded-full ${selectedAction.type === 'NORMAL' ? 'bg-slate-500' : (selectedAction.violation ? 'bg-red-500' : 'bg-green-500')}`}></span>
+                                            <h3 className="text-3xl font-black text-white uppercase tracking-tighter">
+                                                {selectedAction.type === 'NORMAL' ? 'Neural Profile' : 'Neural Intelligence'}
+                                            </h3>
                                         </div>
                                         <div className="flex items-center gap-3 mt-2">
                                             <p className="text-slate-500 font-bold text-sm uppercase tracking-widest">Identity: <span className={isDevMode ? 'text-red-400' : 'text-blue-400'}>@{selectedAction.targetUser}</span></p>
@@ -529,17 +540,21 @@ function App() {
                                 </div>
                                 <div className="grid grid-cols-2 gap-6">
                                     <div className="glass-card p-6 rounded-3xl bg-white/[0.02]">
-                                        <div className="text-[10px] font-black text-slate-600 uppercase mb-2 tracking-[0.2em]">Conclusion</div>
-                                        <div className={`text-xl font-black uppercase tracking-tight ${selectedAction.violation ? 'text-red-400' : 'text-green-400'}`}>{selectedAction.violation ? 'Risk Detected' : 'Safety Verified'}</div>
+                                        <div className="text-[10px] font-black text-slate-600 uppercase mb-2 tracking-[0.2em]">Status</div>
+                                        <div className={`text-xl font-black uppercase tracking-tight ${selectedAction.type === 'NORMAL' ? 'text-slate-400' : (selectedAction.violation ? 'text-red-400' : 'text-green-400')}`}>
+                                            {selectedAction.type === 'NORMAL' ? 'Behavior Sync' : (selectedAction.violation ? 'Risk Detected' : 'Safety Verified')}
+                                        </div>
                                     </div>
                                     <div className="glass-card p-6 rounded-3xl bg-white/[0.02]">
-                                        <div className="text-[10px] font-black text-slate-600 uppercase mb-2 tracking-[0.2em]">AI Confidence</div>
-                                        <div className="text-xl font-black text-white tracking-tight">99.8% Core</div>
+                                        <div className="text-[10px] font-black text-slate-600 uppercase mb-2 tracking-[0.2em]">Source Method</div>
+                                        <div className="text-xl font-black text-white uppercase tracking-tight">{selectedAction.type === 'NORMAL' ? 'Proactive' : 'Triggered'}</div>
                                     </div>
                                 </div>
                                 <div className="space-y-4">
-                                    <div className="flex items-center gap-2 text-[10px] font-black text-slate-600 uppercase tracking-[0.3em]"><Info className="w-4 h-4" /><span>Contextual Reasoning</span></div>
-                                    <div className="glass-card p-8 rounded-[2rem] text-slate-300 leading-relaxed font-bold italic bg-slate-900/40 text-sm border-white/5">"{selectedAction.analysis}"</div>
+                                    <div className="flex items-center gap-2 text-[10px] font-black text-slate-600 uppercase tracking-[0.3em]"><Info className="w-4 h-4" /><span>{selectedAction.type === 'NORMAL' ? 'Social Behavior Profile' : 'Contextual Reasoning'}</span></div>
+                                    <div className="glass-card p-8 rounded-[2rem] text-slate-300 leading-relaxed font-bold italic bg-slate-900/40 text-sm border-white/5">
+                                        "{selectedAction.type === 'NORMAL' ? selectedAction.reason : selectedAction.analysis}"
+                                    </div>
                                 </div>
                                 <button onClick={() => setSelectedAction(null)} className={`w-full bg-${themeColor}-600 hover:bg-${themeColor}-500 py-5 rounded-2xl font-black transition-all text-white uppercase tracking-widest text-xs shadow-lg shadow-${themeColor}-500/20`}>Dismiss Report</button>
                             </div>
@@ -579,7 +594,9 @@ function App() {
                                                 <div className={`font-black text-xl text-white group-hover:text-${themeColor}-400 transition-colors tracking-tighter`}>{user.userTag}</div>
                                                 <span className={`px-4 py-1.5 rounded-xl text-[9px] font-black tracking-[0.2em] border ${user.riskLevel === 'Critical' ? 'bg-red-500/20 text-red-400 border-red-500/30' : user.riskLevel === 'High' ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' : user.riskLevel === 'Medium' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' : 'bg-green-500/20 text-green-400 border-green-500/20'}`}>{user.riskLevel} RISK</span>
                                             </div>
-                                            <div className="flex flex-wrap gap-1 mb-6">{user.userRoles && user.userRoles.map((r, idx) => <span key={idx} className="text-[8px] font-black text-slate-600 uppercase tracking-widest">{r}</span>)}</div>
+                                            {isDevMode && (
+                                                <div className="flex flex-wrap gap-1 mb-6">{user.userRoles && user.userRoles.map((r, idx) => <span key={idx} className="text-[8px] font-black text-slate-600 uppercase tracking-widest">{r}</span>)}</div>
+                                            )}
                                             <p className="text-slate-400 text-sm font-bold leading-relaxed mb-8 flex-1 italic">"{user.behaviorSummary}"</p>
                                             <div className="space-y-6 pt-6 border-t border-white/5 mt-auto">
                                                 <div className="flex flex-wrap gap-2">{user.violatedRules.length > 0 ? user.violatedRules.map((rule, j) => <span key={j} className="px-3 py-1 bg-red-500/10 rounded-lg text-[9px] text-red-400 font-black border border-red-500/10 uppercase tracking-widest">{rule}</span>) : <span className="px-3 py-1 bg-green-500/10 rounded-lg text-[9px] text-green-400 font-black border border-green-500/10 uppercase tracking-widest">CLEAR</span>}</div>

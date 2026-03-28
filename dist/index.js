@@ -18,38 +18,68 @@ app.use(express_1.default.json());
 app.get('/api/stats', (req, res) => {
     const key = req.headers['x-api-key'];
     const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
-    const isAuthorized = key === process.env.DASHBOARD_KEY;
+    const isDashboardKey = key === process.env.DASHBOARD_KEY;
+    const isDevKey = process.env.DEV_KEY && key === process.env.DEV_KEY;
+    const isAuthorized = isDashboardKey || isDevKey;
     // Record the access attempt
     (0, stats_1.recordAccess)({
         timestamp: new Date().toISOString(),
         ip: Array.isArray(ip) ? ip[0] : ip,
-        success: isAuthorized
+        success: !!isAuthorized
     });
     if (!isAuthorized) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
-    res.json((0, stats_1.getStats)());
+    res.json({
+        ...(0, stats_1.getStats)(),
+        isDev: !!isDevKey
+    });
+});
+app.delete('/api/dev/clear', (req, res) => {
+    const key = req.headers['x-api-key'];
+    const isDevAuthorized = process.env.DEV_KEY && key === process.env.DEV_KEY;
+    if (!isDevAuthorized) {
+        return res.status(403).json({ error: 'Forbidden: Developer Key Required' });
+    }
+    const { target } = req.body;
+    if (target === 'logs') {
+        (0, stats_1.clearLogs)();
+        res.json({ success: true, message: 'Neural monitoring logs cleared' });
+    }
+    else if (target === 'access') {
+        (0, stats_1.clearAccessLogs)();
+        res.json({ success: true, message: 'Access logs cleared' });
+    }
+    else {
+        res.status(400).json({ error: 'Invalid clear target' });
+    }
 });
 app.get('/api/channels', async (req, res) => {
     const key = req.headers['x-api-key'];
-    if (key !== process.env.DASHBOARD_KEY) {
+    const isDev = process.env.DEV_KEY && key === process.env.DEV_KEY;
+    const isAuthorized = key === process.env.DASHBOARD_KEY || isDev;
+    if (!isAuthorized) {
         console.log(`[API] Unauthorized channel fetch attempt from ${req.ip}`);
         return res.status(401).json({ error: 'Unauthorized' });
     }
     try {
-        // Fetch the guild to ensure it's in cache or get it fresh
         const guilds = await client_1.client.guilds.fetch();
         const firstGuildBase = guilds.first();
         if (!firstGuildBase) {
-            console.error("[API] Bot is not in any guilds.");
             return res.status(404).json({ error: 'Bot is not in any guilds' });
         }
         const guild = await firstGuildBase.fetch();
         const fetchedChannels = await guild.channels.fetch();
+        const sensitiveKeywords = ['mod', 'admin', 'staff', 'log', 'private', 'dev'];
         const channels = fetchedChannels
             .filter(c => c !== null && c.isTextBased() && !c.isThread())
+            .filter(c => {
+            if (isDev)
+                return true; // Dev sees everything
+            const name = c.name.toLowerCase();
+            return !sensitiveKeywords.some(word => name.includes(word));
+        })
             .map(c => ({ id: c.id, name: c.name }));
-        console.log(`[API] Fetched ${channels.length} channels for dashboard.`);
         res.json(channels);
     }
     catch (error) {
@@ -57,9 +87,63 @@ app.get('/api/channels', async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch channels' });
     }
 });
+app.post('/api/dev/private-scan', async (req, res) => {
+    const key = req.headers['x-api-key'];
+    if (!process.env.DEV_KEY || key !== process.env.DEV_KEY) {
+        return res.status(403).json({ error: 'Forbidden: Developer Identity Required' });
+    }
+    const { channelId } = req.body;
+    if (!channelId)
+        return res.status(400).json({ error: 'channelId is required' });
+    try {
+        const channel = await client_1.client.channels.fetch(channelId);
+        if (!channel || !channel.isTextBased()) {
+            return res.status(404).json({ error: 'Channel not found' });
+        }
+        const textChannel = channel;
+        // Permission Check
+        const permissions = textChannel.permissionsFor(client_1.client.user);
+        if (!permissions || !permissions.has('ViewChannel') || !permissions.has('ReadMessageHistory')) {
+            return res.status(403).json({ error: 'Forbidden: Missing Bot Permissions for this channel' });
+        }
+        const messages = await textChannel.messages.fetch({ limit: 100 });
+        // Ensure members are fetched so roles are available
+        try {
+            await textChannel.guild.members.fetch();
+        }
+        catch (e) {
+            console.log("[API] Failed to bulk fetch members for private scan, falling back to cache.");
+        }
+        const transcript = Array.from(messages.values())
+            .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+            .map(m => {
+            let roles = [];
+            try {
+                roles = m.member?.roles.cache.map(r => r.name).filter(n => n !== '@everyone') || [];
+            }
+            catch (e) { }
+            return {
+                id: m.id,
+                author: m.author.tag,
+                roles: roles,
+                content: m.content,
+                timestamp: m.createdAt.toISOString()
+            };
+        });
+        res.json({
+            channel: textChannel.name,
+            messages: transcript
+        });
+    }
+    catch (error) {
+        console.error('[API] Private scan error:', error);
+        res.status(500).json({ error: 'Private fetch failed' });
+    }
+});
 app.post('/api/mass-scan', async (req, res) => {
     const key = req.headers['x-api-key'];
-    if (key !== process.env.DASHBOARD_KEY) {
+    const isAuthorized = key === process.env.DASHBOARD_KEY || (process.env.DEV_KEY && key === process.env.DEV_KEY);
+    if (!isAuthorized) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
     const { channelId } = req.body;
@@ -99,6 +183,12 @@ client_1.client.on(discord_js_1.Events.MessageCreate, async (message) => {
         const targetUser = message.mentions.users.first();
         if (targetUser) {
             await (0, moderation_1.handlePotentialInfraction)(message.channel, targetUser, message);
+        }
+    }
+    else {
+        // PROACTIVE NEURAL PROFILING (1% chance on any message)
+        if (Math.random() < 0.01 && !message.author.bot) {
+            await (0, moderation_1.handlePotentialInfraction)(message.channel, message.author, message, true);
         }
     }
 });

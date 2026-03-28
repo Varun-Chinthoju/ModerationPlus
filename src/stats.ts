@@ -1,11 +1,13 @@
 export interface ModerationAction {
     timestamp: string;
     targetUser: string;
-    targetRoles: string[]; // Added roles
+    targetRoles: string[];
     channel: string;
     violation: boolean;
     reason: string;
     analysis: string;
+    type: 'INFRACTION' | 'AUDIT' | 'NORMAL'; // Explicit type
+    auditData?: MassScanReport;
 }
 
 export interface MassScanReport {
@@ -24,7 +26,7 @@ export interface AccessLog {
 
 export interface UserSummary {
     userTag: string;
-    userRoles: string[]; // Added roles
+    userRoles: string[];
     behaviorSummary: string;
     violatedRules: string[];
     suggestedPunishment: string;
@@ -55,7 +57,7 @@ export function recordAction(action: ModerationAction) {
     stats.totalEvaluations++;
     if (action.violation) stats.totalViolations++;
     stats.lastActions.unshift(action);
-    if (stats.lastActions.length > 50) stats.lastActions.pop();
+    if (stats.lastActions.length > 100) stats.lastActions.pop(); // Increased history
 }
 
 export function recordMassScan(report: MassScanReport) {
