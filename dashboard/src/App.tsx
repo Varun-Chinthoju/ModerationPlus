@@ -168,7 +168,10 @@ function App() {
                             <ShieldCheck className="w-10 h-10 text-white" />
                         </div>
                         <div>
-                            <h1 className="text-3xl font-black text-white leading-tight">Control Center</h1>
+                            <div className="flex items-center gap-3">
+                                <h1 className="text-3xl font-black text-white leading-tight">Control Center</h1>
+                                <span className="px-2 py-0.5 bg-blue-500/10 border border-blue-500/20 rounded-md text-[10px] font-black text-blue-400 uppercase tracking-widest">v1.0.2</span>
+                            </div>
                             <div className="flex items-center gap-3 text-sm font-medium text-slate-400 mt-1">
                                 <span className={`flex h-2.5 w-2.5 rounded-full ${stats ? 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]' : 'bg-red-500 animate-pulse'}`}></span>
                                 {stats ? <span className="opacity-80">Synced with {botUrl}</span> : 'Disconnected'}
@@ -216,7 +219,10 @@ function App() {
                                 <div className="p-3 bg-slate-800 rounded-2xl">
                                     <Terminal className="w-6 h-6 text-blue-400" />
                                 </div>
-                                <h2 className="text-2xl font-black text-white">Neural Monitoring</h2>
+                                <div className="flex items-center gap-3">
+                                    <h2 className="text-2xl font-black text-white">Neural Monitoring</h2>
+                                    <span className="flex h-2 w-2 rounded-full bg-blue-500 animate-ping"></span>
+                                </div>
                             </div>
                             <div className="relative group w-full md:w-80">
                                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-blue-400" />
