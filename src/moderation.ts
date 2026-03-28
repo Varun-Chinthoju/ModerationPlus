@@ -53,7 +53,8 @@ export async function handlePotentialInfraction(channel: TextChannel, targetUser
         violation: analysis.violation,
         reason: analysis.shortReason,
         analysis: analysis.detailedAnalysis,
-        type: analysis.violation ? 'INFRACTION' : 'NORMAL' // Correctly type the log
+        socialProfile: analysis.socialProfile, // Pass profile
+        type: analysis.violation ? 'INFRACTION' : 'NORMAL'
     });
     
     if (!analysis.violation) {

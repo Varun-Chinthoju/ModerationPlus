@@ -6,7 +6,8 @@ export interface ModerationAction {
     violation: boolean;
     reason: string;
     analysis: string;
-    type: 'INFRACTION' | 'AUDIT' | 'NORMAL'; // Explicit type
+    socialProfile?: string; // Added profiling
+    type: 'INFRACTION' | 'AUDIT' | 'NORMAL';
     auditData?: MassScanReport;
 }
 

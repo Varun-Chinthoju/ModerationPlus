@@ -5,7 +5,7 @@ import {
     Activity, ShieldAlert, Clock, User, ShieldCheck, 
     RefreshCw, Key, Settings, ChevronRight, 
     Terminal, Lock, LogOut, Search, Info, X, FileSearch, Download,
-    Cpu, Trash2, Database, AlertTriangle, Eye, UserCircle
+    Cpu, Trash2, Database, AlertTriangle, Eye
 } from 'lucide-react';
 
 interface ModerationAction {
