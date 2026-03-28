@@ -3,7 +3,7 @@ import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
     Activity, ShieldAlert, Clock, User, ShieldCheck, 
-    RefreshCw, Key, Settings, ExternalLink, ChevronRight, 
+    RefreshCw, Key, Settings, ChevronRight, 
     Terminal, Lock, LogOut, Search, Info, X
 } from 'lucide-react';
 
@@ -91,11 +91,6 @@ function App() {
     const containerVariants = {
         hidden: { opacity: 0 },
         visible: { opacity: 1, transition: { staggerChildren: 0.1 } }
-    };
-
-    const itemVariants = {
-        hidden: { y: 20, opacity: 0 },
-        visible: { y: 0, opacity: 1 }
     };
 
     if (!isLoggedIn) {
@@ -403,7 +398,7 @@ function App() {
     );
 }
 
-function StatCard({ icon, label, value, color, subtitle }: { icon: React.ReactNode, label: string, value: string | number, color: 'blue' | 'orange' | 'purple' | 'green', subtitle: string }) {
+function StatCard({ icon, label, value, color, subtitle }: { icon: React.ReactElement, label: string, value: string | number, color: 'blue' | 'orange' | 'purple' | 'green', subtitle: string }) {
     const colorStyles = {
         blue: 'from-blue-500/20 to-blue-600/5 text-blue-400 border-blue-500/20',
         orange: 'from-orange-500/20 to-orange-600/5 text-orange-400 border-orange-500/20',
@@ -421,7 +416,7 @@ function StatCard({ icon, label, value, color, subtitle }: { icon: React.ReactNo
         >
             <div className="flex items-center justify-between mb-6">
                 <div className={`p-4 bg-slate-900/50 rounded-2xl border border-white/5`}>
-                    {React.cloneElement(icon as React.ReactElement, { className: 'w-7 h-7' })}
+                    {React.cloneElement(icon, { size: 28 } as any)}
                 </div>
                 <div className="flex flex-col items-end">
                     <span className="text-3xl font-black text-white tracking-tight">{value}</span>
