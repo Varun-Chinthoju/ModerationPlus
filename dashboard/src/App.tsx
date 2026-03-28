@@ -31,6 +31,25 @@ interface BotStats {
     accessLogs: AccessLog[];
 }
 
+interface UserSummary {
+    userTag: string;
+    behaviorSummary: string;
+    violatedRules: string[];
+    suggestedPunishment: string;
+    riskLevel: 'Low' | 'Medium' | 'High' | 'Critical';
+}
+
+interface MassScanResult {
+    totalMessages: number;
+    usersAnalyzed: UserSummary[];
+    generalConclusion: string;
+}
+
+interface Channel {
+    id: string;
+    name: string;
+}
+
 function App() {
     const [apiKey, setApiKey] = useState(localStorage.getItem('dashboard_key') || '');
     const [botUrl, setBotUrl] = useState(localStorage.getItem('bot_url') || 'http://localhost:3000');
@@ -40,6 +59,11 @@ function App() {
     const [error, setError] = useState('');
     const [selectedAction, setSelectedAction] = useState<ModerationAction | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
+
+    const [channels, setChannels] = useState<Channel[]>([]);
+    const [selectedChannel, setSelectedChannel] = useState('');
+    const [massScanResult, setMassScanResult] = useState<MassScanResult | null>(null);
+    const [scanning, setScanning] = useState(false);
 
     const fetchData = async () => {
         if (!apiKey) return;
@@ -58,9 +82,53 @@ function App() {
         }
     };
 
+    const fetchChannels = async () => {
+        if (!apiKey || !isLoggedIn) return;
+        try {
+            const response = await axios.get(`${botUrl}/api/channels`, {
+                headers: { 'x-api-key': apiKey }
+            });
+            setChannels(response.data);
+            if (response.data.length > 0 && !selectedChannel) {
+                setSelectedChannel(response.data[0].id);
+            }
+        } catch (err) {
+            console.error('Failed to fetch channels');
+        }
+    };
+
+    const handleMassScan = async () => {
+        if (!selectedChannel) return;
+        setScanning(true);
+        setMassScanResult(null);
+        try {
+            const response = await axios.post(`${botUrl}/api/mass-scan`, 
+                { channelId: selectedChannel },
+                { headers: { 'x-api-key': apiKey } }
+            );
+            setMassScanResult(response.data);
+        } catch (err: any) {
+            setError(err.response?.data?.error || 'Mass scan failed.');
+        } finally {
+            setScanning(false);
+        }
+    };
+
+    const downloadReport = () => {
+        if (!massScanResult) return;
+        const blob = new Blob([JSON.stringify(massScanResult, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `mass-scan-report-${selectedChannel}-${new Date().toISOString()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
     useEffect(() => {
         if (isLoggedIn) {
             fetchData();
+            fetchChannels();
             const interval = setInterval(fetchData, 5000);
             return () => clearInterval(interval);
         }
@@ -204,6 +272,102 @@ function App() {
                     <StatCard icon={<ShieldAlert />} label="Blocked Risks" value={stats?.totalViolations ?? '--'} color="orange" subtitle="Confirmed infractions" />
                     <StatCard icon={<Clock />} label="Runtime" value={stats ? formatUptime(stats.uptime) : '--'} color="purple" subtitle="Active session duration" />
                     <StatCard icon={<User />} label="Punishments" value={stats?.totalTimeouts ?? '--'} color="green" subtitle="Verified timeouts applied" />
+                </motion.div>
+
+                {/* Neural Audit (Mass Scan) */}
+                <motion.div 
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.3 }}
+                    className="glass p-8 rounded-[2.5rem] border-white/10"
+                >
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-8">
+                        <div className="flex items-center gap-6">
+                            <div className="p-4 bg-blue-500/10 rounded-2xl">
+                                <Search className="w-8 h-8 text-blue-400" />
+                            </div>
+                            <div>
+                                <h2 className="text-2xl font-black text-white">Neural Audit</h2>
+                                <p className="text-slate-400 font-medium">Scan last 500 messages for community-wide rule compliance</p>
+                            </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-4">
+                            <select 
+                                value={selectedChannel}
+                                onChange={(e) => setSelectedChannel(e.target.value)}
+                                className="bg-slate-900/50 border border-white/10 rounded-2xl px-6 py-4 text-white focus:outline-none focus:border-blue-500/50 transition-all min-w-[200px]"
+                            >
+                                <option value="" disabled>Select Channel</option>
+                                {channels.map(c => (
+                                    <option key={c.id} value={c.id}>#{c.name}</option>
+                                ))}
+                            </select>
+                            <button 
+                                onClick={handleMassScan}
+                                disabled={scanning || !selectedChannel}
+                                className={`flex items-center gap-3 px-8 py-4 rounded-2xl font-bold transition-all active:scale-95 ${
+                                    scanning 
+                                    ? 'bg-blue-500/20 text-blue-400 cursor-not-allowed' 
+                                    : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20'
+                                }`}
+                            >
+                                {scanning ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Activity className="w-5 h-5" />}
+                                <span>{scanning ? 'Analyzing 500 Messages...' : 'Start Mass Scan'}</span>
+                            </button>
+                            {massScanResult && (
+                                <button 
+                                    onClick={downloadReport}
+                                    className="flex items-center gap-3 px-8 py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-bold transition-all shadow-lg shadow-indigo-500/20 active:scale-95"
+                                >
+                                    <ShieldCheck className="w-5 h-5" />
+                                    <span>Download JSON Report</span>
+                                </button>
+                            )}
+                        </div>
+                    </div>
+
+                    {massScanResult && (
+                        <motion.div 
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            className="mt-10 pt-10 border-t border-white/5 space-y-8"
+                        >
+                            <div className="glass-card p-8 rounded-[2rem] bg-blue-500/5 border-blue-500/10">
+                                <h3 className="text-sm font-black text-blue-400 uppercase tracking-widest mb-4">Neural Conclusion</h3>
+                                <p className="text-lg text-slate-200 font-medium leading-relaxed">{massScanResult.generalConclusion}</p>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {massScanResult.usersAnalyzed.map((user, i) => (
+                                    <div key={i} className="glass-card p-6 rounded-3xl border-white/5 hover:border-white/10 transition-all group">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <div className="font-bold text-white group-hover:text-blue-400 transition-colors">{user.userTag}</div>
+                                            <span className={`px-3 py-1 rounded-lg text-[10px] font-black tracking-widest ${
+                                                user.riskLevel === 'Critical' ? 'bg-red-500/20 text-red-400' :
+                                                user.riskLevel === 'High' ? 'bg-orange-500/20 text-orange-400' :
+                                                user.riskLevel === 'Medium' ? 'bg-yellow-500/20 text-yellow-400' :
+                                                'bg-green-500/20 text-green-400'
+                                            }`}>
+                                                {user.riskLevel}
+                                            </span>
+                                        </div>
+                                        <p className="text-sm text-slate-400 line-clamp-3 mb-4">{user.behaviorSummary}</p>
+                                        <div className="space-y-3">
+                                            <div className="flex flex-wrap gap-2">
+                                                {user.violatedRules.map((rule, j) => (
+                                                    <span key={j} className="px-2 py-0.5 bg-slate-800 rounded text-[10px] text-slate-500 font-bold border border-white/5">
+                                                        {rule}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                            <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Recommended Action</div>
+                                            <div className="text-sm font-bold text-slate-300">{user.suggestedPunishment}</div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </motion.div>
+                    )}
                 </motion.div>
 
                 <div className="grid grid-cols-1 xl:grid-cols-4 gap-10">

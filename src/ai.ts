@@ -8,6 +8,20 @@ export interface AnalysisResult {
     detailedAnalysis: string;
 }
 
+export interface UserSummary {
+    userTag: string;
+    behaviorSummary: string;
+    violatedRules: string[];
+    suggestedPunishment: string;
+    riskLevel: 'Low' | 'Medium' | 'High' | 'Critical';
+}
+
+export interface MassScanResult {
+    totalMessages: number;
+    usersAnalyzed: UserSummary[];
+    generalConclusion: string;
+}
+
 export async function analyzeContext(contextMessages: string, targetUser: string): Promise<AnalysisResult | null> {
     try {
         const prompt = `You are an expert Discord server moderator. Your job is to enforce the server rules fairly but strictly.
@@ -46,6 +60,59 @@ Return your evaluation as a JSON object with the following exact schema:
         return result;
     } catch (error) {
         console.error("Failed to analyze context with Gemini:", error);
+        return null;
+    }
+}
+
+export async function analyzeMassScan(transcript: string, messageCount: number): Promise<MassScanResult | null> {
+    try {
+        const prompt = `You are an expert Discord server auditor. Your job is to perform a deep-dive scan of a conversation to identify rule-breakers and summarize the community's health.
+You will be provided with the SERVER RULES and a CONVERSATION TRANSCRIPT containing ${messageCount} messages.
+Analyze EVERY user mentioned in the transcript.
+
+### SERVER RULES
+${cachedRules}
+
+### CONVERSATION TRANSCRIPT
+${transcript}
+
+### INSTRUCTIONS
+1. Summarize the behavior of each active user in the transcript.
+2. Determine if they violated any rules and list those rules.
+3. Suggest a punishment if necessary.
+4. Assign a risk level based on their overall tone and frequency of issues.
+5. Provide an overall conclusion for the entire 500-message block.
+
+Return your evaluation as a JSON object with the following exact schema:
+{
+    "totalMessages": number,
+    "usersAnalyzed": [
+        {
+            "userTag": string,
+            "behaviorSummary": string,
+            "violatedRules": string[],
+            "suggestedPunishment": string,
+            "riskLevel": "Low" | "Medium" | "High" | "Critical"
+        }
+    ],
+    "generalConclusion": string
+}`;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-1.5-flash',
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+            }
+        });
+
+        const text = response.text;
+        if (!text) return null;
+
+        const result: MassScanResult = JSON.parse(text);
+        return result;
+    } catch (error) {
+        console.error("Failed to perform mass scan with Gemini:", error);
         return null;
     }
 }

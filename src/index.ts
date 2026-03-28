@@ -37,6 +37,53 @@ app.get('/api/stats', (req, res) => {
     res.json(getStats());
 });
 
+app.get('/api/channels', async (req, res) => {
+    const key = req.headers['x-api-key'];
+    if (key !== process.env.DASHBOARD_KEY) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    try {
+        const guild = client.guilds.cache.first(); // Assuming single guild for simplicity, or we could pass guildId
+        if (!guild) return res.status(404).json({ error: 'Guild not found' });
+
+        const channels = guild.channels.cache
+            .filter(c => c.isTextBased() && !c.isThread())
+            .map(c => ({ id: c.id, name: c.name }));
+
+        res.json(channels);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch channels' });
+    }
+});
+
+app.post('/api/mass-scan', async (req, res) => {
+    const key = req.headers['x-api-key'];
+    if (key !== process.env.DASHBOARD_KEY) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { channelId } = req.body;
+    if (!channelId) return res.status(400).json({ error: 'channelId is required' });
+
+    try {
+        const channel = await client.channels.fetch(channelId);
+        if (!channel || !channel.isTextBased()) {
+            return res.status(404).json({ error: 'Channel not found or not text-based' });
+        }
+
+        const { performMassScan } = require('./moderation');
+        const report = await performMassScan(channel as TextChannel);
+        
+        if (!report) return res.status(500).json({ error: 'Scan failed' });
+        
+        res.json(report);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'An error occurred during mass scan' });
+    }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`API Dashboard server running on port ${PORT}`));
 

@@ -1,5 +1,5 @@
-import { TextChannel, Message, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, User } from 'discord.js';
-import { analyzeContext } from './ai';
+import { TextChannel, Message, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, User, Collection } from 'discord.js';
+import { analyzeContext, analyzeMassScan, MassScanResult } from './ai';
 import { client } from './index';
 import { recordAction } from './stats';
 
@@ -72,4 +72,32 @@ export async function handlePotentialInfraction(channel: TextChannel, targetUser
         .addComponents(approveBtn, dismissBtn);
         
     await textChannel.send({ embeds: [embed], components: [row] });
+}
+
+export async function performMassScan(channel: TextChannel): Promise<MassScanResult | null> {
+    console.log(`Starting mass scan for channel: #${channel.name}`);
+    
+    let allMessages: Message[] = [];
+    let lastId: string | undefined;
+    
+    // Fetch 500 messages in chunks of 100
+    for (let i = 0; i < 5; i++) {
+        const options: any = { limit: 100 };
+        if (lastId) options.before = lastId;
+        
+        const fetched = await channel.messages.fetch(options) as unknown as Collection<string, Message>;
+        if (fetched.size === 0) break;
+        
+        allMessages = allMessages.concat(Array.from(fetched.values()));
+        lastId = fetched.last()?.id;
+    }
+    
+    // Sort oldest to newest
+    const sorted = allMessages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+    
+    // Format transcript
+    const transcript = sorted.map(m => `[${m.createdAt.toISOString()}] ${m.author.tag}: ${m.content}`).join('\n');
+    
+    // Perform AI Analysis
+    return await analyzeMassScan(transcript, sorted.length);
 }
