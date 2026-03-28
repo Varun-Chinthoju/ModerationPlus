@@ -194,14 +194,16 @@ export async function performMassScan(channel: TextChannel): Promise<MassScanRes
     const result = await analyzeMassScan(transcript, sorted.length, rolesString);
     
     if (result) {
-        recordMassScan({
+        const fullReport = {
             timestamp: new Date().toISOString(),
             channel: channel.name,
             totalMessages: result.totalMessages,
             generalConclusion: result.generalConclusion,
             usersAnalyzed: result.usersAnalyzed
-        });
+        };
+        recordMassScan(fullReport);
+        return fullReport as any;
     }
     
-    return result;
+    return null;
 }

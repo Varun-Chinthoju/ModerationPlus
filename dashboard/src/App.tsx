@@ -204,27 +204,24 @@ function App() {
     const unifiedHistory = useMemo(() => {
         // Correctly sort all historical events including the new NORMAL profiling logs
         const history = [...(stats?.lastActions || [])];
-        
-        if (isDevMode) {
-            const audits = (stats?.massScans || []).map(s => ({
-                timestamp: s.timestamp,
-                targetUser: 'COMMUNITY AUDIT',
-                targetRoles: [],
-                channel: s.channel,
-                violation: true,
-                reason: s.generalConclusion,
-                analysis: '',
-                type: 'AUDIT' as const,
-                auditData: s
-            }));
-            history.push(...(audits as any));
-        }
+
+        const audits = (stats?.massScans || []).map(s => ({
+            timestamp: s.timestamp,
+            targetUser: 'COMMUNITY AUDIT',
+            targetRoles: [],
+            channel: s.channel,
+            violation: true,
+            reason: s.generalConclusion,
+            analysis: '',
+            type: 'AUDIT' as const,
+            auditData: s
+        }));
+        history.push(...(audits as any));
 
         return history.sort((a, b) => 
             new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
         );
-    }, [stats, isDevMode]);
-
+    }, [stats]);
     const filteredHistory = useMemo(() => {
         return unifiedHistory.filter(a => 
             a.targetUser.toLowerCase().includes(searchTerm.toLowerCase()) ||
