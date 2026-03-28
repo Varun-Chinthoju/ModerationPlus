@@ -1,4 +1,4 @@
-# Discord AI Moderation Bot (Gemini Engine)
+# Moderation++ (AI Moderation Bot)
 
 An intelligent, context-aware Discord moderation bot powered by Google's Gemini AI. This bot moves beyond simple keyword filters by understanding the flow of a conversation and applying server-specific rules to determine if a timeout is necessary.
 
