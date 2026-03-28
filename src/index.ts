@@ -4,7 +4,7 @@ import * as dotenv from 'dotenv';
 import express from 'express';
 import cors from 'cors';
 import { fetchRules } from './rules';
-import { handlePotentialInfraction } from './moderation';
+import { handlePotentialInfraction, performMassScan } from './moderation';
 import { registerCommands } from './register';
 import { getStats, recordTimeout, recordAccess } from './stats';
 
@@ -84,7 +84,6 @@ app.post('/api/mass-scan', async (req, res) => {
             return res.status(404).json({ error: 'Channel not found or not text-based' });
         }
 
-        const { performMassScan } = require('./moderation');
         const report = await performMassScan(channel as TextChannel);
         
         if (!report) return res.status(500).json({ error: 'Scan failed' });
