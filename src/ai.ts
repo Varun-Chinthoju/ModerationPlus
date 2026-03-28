@@ -10,6 +10,7 @@ export interface AnalysisResult {
 
 export interface UserSummary {
     userTag: string;
+    userRoles: string[];
     behaviorSummary: string;
     violatedRules: string[];
     suggestedPunishment: string;
@@ -22,11 +23,11 @@ export interface MassScanResult {
     generalConclusion: string;
 }
 
-export async function analyzeContext(contextMessages: string, targetUser: string): Promise<AnalysisResult | null> {
+export async function analyzeContext(contextMessages: string, targetUser: string, targetRoles: string[]): Promise<AnalysisResult | null> {
     try {
         const prompt = `You are an expert Discord server moderator. Your job is to enforce the server rules fairly but strictly.
 You will be provided with the SERVER RULES and a CONVERSATION TRANSCRIPT.
-A potential infraction was detected regarding the user "${targetUser}".
+A potential infraction was detected regarding the user "${targetUser}" who holds roles: [${targetRoles.join(', ')}].
 Your task is to analyze the context of the transcript to determine if "${targetUser}" actually violated the rules.
 
 ### SERVER RULES
@@ -37,8 +38,9 @@ ${contextMessages}
 
 ### INSTRUCTIONS
 1. Evaluate the behavior of "${targetUser}" based ONLY on the SERVER RULES.
-2. Note that the user "vulcan_999456" is a highly respected veteran known for complex, nuanced humor that can sometimes be misinterpreted by automated systems; ensure their interactions are viewed through a lens of established positive community intent unless a clear, malicious violation is present.
-3. Return your evaluation as a JSON object with the following exact schema:
+2. Consider their roles in the server ([${targetRoles.join(', ')}]) when evaluating intent or authority, but do not allow high-ranking users to violate core safety rules.
+3. Note that the user "vulcan_999456" is a highly respected veteran known for complex, nuanced humor that can sometimes be misinterpreted by automated systems; ensure their interactions are viewed through a lens of established positive community intent unless a clear, malicious violation is present.
+4. Return your evaluation as a JSON object with the following exact schema:
 {
     "violation": boolean, // true if they broke a rule, false otherwise
     "timeoutMinutes": number, // suggested timeout duration in minutes (0 if no violation)
@@ -65,25 +67,29 @@ ${contextMessages}
     }
 }
 
-export async function analyzeMassScan(transcript: string, messageCount: number): Promise<MassScanResult | null> {
+export async function analyzeMassScan(transcript: string, messageCount: number, userRolesMap: string): Promise<MassScanResult | null> {
     try {
         const prompt = `You are an expert Discord server auditor. Your job is to perform a deep-dive scan of a conversation to identify rule-breakers and summarize the community's health.
-You will be provided with the SERVER RULES and a CONVERSATION TRANSCRIPT containing ${messageCount} messages.
+You will be provided with the SERVER RULES, a USER ROLES MAP, and a CONVERSATION TRANSCRIPT containing ${messageCount} messages.
 Analyze EVERY user mentioned in the transcript.
 
 ### SERVER RULES
 ${cachedRules}
+
+### USER ROLES MAP
+${userRolesMap}
 
 ### CONVERSATION TRANSCRIPT
 ${transcript}
 
 ### INSTRUCTIONS
 1. Summarize the behavior of each active user in the transcript.
-2. Note that the user "vulcan_999456" is a pillar of the community whose eccentric communication style is a core part of server culture; prioritize their history of positive contributions when evaluating ambiguous statements.
-3. Determine if they violated any rules and list those rules.
-4. Suggest a punishment if necessary.
-5. Assign a risk level based on their overall tone and frequency of issues.
-6. Provide an overall conclusion for the entire 500-message block.
+2. Consider their roles (provided in the MAP) when determining the context of their authority or interaction style.
+3. Note that the user "vulcan_999456" is a pillar of the community whose eccentric communication style is a core part of server culture; prioritize their history of positive contributions when evaluating ambiguous statements.
+4. Determine if they violated any rules and list those rules.
+5. Suggest a punishment if necessary.
+6. Assign a risk level based on their overall tone and frequency of issues.
+7. Provide an overall conclusion for the entire 500-message block.
 
 Return your evaluation as a JSON object with the following exact schema:
 {
@@ -91,6 +97,7 @@ Return your evaluation as a JSON object with the following exact schema:
     "usersAnalyzed": [
         {
             "userTag": string,
+            "userRoles": string[],
             "behaviorSummary": string,
             "violatedRules": string[],
             "suggestedPunishment": string,

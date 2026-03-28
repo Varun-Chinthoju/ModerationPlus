@@ -11,6 +11,7 @@ import {
 interface ModerationAction {
     timestamp: string;
     targetUser: string;
+    targetRoles: string[]; // Added roles
     channel: string;
     violation: boolean;
     reason: string;
@@ -38,6 +39,7 @@ interface BotStats {
 
 interface UserSummary {
     userTag: string;
+    userRoles: string[]; // Added roles
     behaviorSummary: string;
     violatedRules: string[];
     suggestedPunishment: string;
@@ -174,6 +176,7 @@ function App() {
         const audits = (stats?.massScans || []).map(s => ({
             timestamp: s.timestamp,
             targetUser: 'COMMUNITY AUDIT',
+            targetRoles: [],
             channel: s.channel,
             violation: true,
             reason: s.generalConclusion,
@@ -422,6 +425,7 @@ function App() {
                                 <thead>
                                     <tr className="text-slate-600 text-[10px] font-black uppercase tracking-[0.3em] border-b border-white/5">
                                         <th className="px-8 py-6">Intelligence Identity</th>
+                                        <th className="px-8 py-6">Hierarchy</th>
                                         <th className="px-8 py-6">Source</th>
                                         <th className="px-8 py-6 text-center">Status</th>
                                         <th className="px-8 py-6">Conclusion</th>
@@ -443,6 +447,15 @@ function App() {
                                                 <td className="px-8 py-6">
                                                     <div className={`font-black tracking-tight transition-colors ${action.type === 'AUDIT' ? (isDevMode ? 'text-red-400' : 'text-blue-400') : 'text-slate-200 group-hover:text-white'}`}>{action.targetUser}</div>
                                                     <div className="text-[10px] font-mono text-slate-600 mt-1 uppercase tracking-tighter">{new Date(action.timestamp).toLocaleString()}</div>
+                                                </td>
+                                                <td className="px-8 py-6">
+                                                    <div className="flex flex-wrap gap-1 max-w-[150px]">
+                                                        {action.targetRoles && action.targetRoles.length > 0 ? action.targetRoles.map((role, idx) => (
+                                                            <span key={idx} className="px-2 py-0.5 bg-white/5 rounded text-[9px] font-bold text-slate-400 uppercase tracking-tighter border border-white/5">
+                                                                {role}
+                                                            </span>
+                                                        )) : <span className="text-[9px] text-slate-700 uppercase font-black tracking-widest">Guest</span>}
+                                                    </div>
                                                 </td>
                                                 <td className="px-8 py-6">
                                                     <span className="px-3 py-1 bg-slate-900 rounded-lg text-[10px] font-black font-mono text-slate-500 border border-white/5">#{action.channel.toUpperCase()}</span>
@@ -522,7 +535,14 @@ function App() {
                                             <span className={`w-3 h-3 rounded-full ${selectedAction.violation ? 'bg-red-500' : 'bg-green-500'}`}></span>
                                             <h3 className="text-3xl font-black text-white uppercase tracking-tighter">Neural Intelligence</h3>
                                         </div>
-                                        <p className="text-slate-500 font-bold text-sm uppercase tracking-widest">Identity Trace: <span className={isDevMode ? 'text-red-400' : 'text-blue-400'}>@{selectedAction.targetUser}</span></p>
+                                        <div className="flex items-center gap-3 mt-2">
+                                            <p className="text-slate-500 font-bold text-sm uppercase tracking-widest">Identity: <span className={isDevMode ? 'text-red-400' : 'text-blue-400'}>@{selectedAction.targetUser}</span></p>
+                                            <div className="flex gap-1">
+                                                {selectedAction.targetRoles.map((r, idx) => (
+                                                    <span key={idx} className="px-2 py-0.5 bg-white/5 rounded text-[8px] font-black text-slate-600 border border-white/5 uppercase">{r}</span>
+                                                ))}
+                                            </div>
+                                        </div>
                                     </div>
                                     <button onClick={() => setSelectedAction(null)} className="p-3 glass rounded-2xl hover:bg-white/10 transition-colors">
                                         <X className="w-6 h-6 text-slate-400" />
@@ -599,7 +619,7 @@ function App() {
                                 <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-4 gap-8">
                                     {selectedAudit.usersAnalyzed.map((user, i) => (
                                         <motion.div key={i} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }} className="glass-card p-8 rounded-[2.5rem] border-white/5 hover:border-white/10 transition-all group flex flex-col h-full bg-white/[0.01]">
-                                            <div className="flex items-center justify-between mb-6">
+                                            <div className="flex items-center justify-between mb-2">
                                                 <div className={`font-black text-xl text-white group-hover:text-${themeColor}-400 transition-colors tracking-tighter`}>{user.userTag}</div>
                                                 <span className={`px-4 py-1.5 rounded-xl text-[9px] font-black tracking-[0.2em] border ${
                                                     user.riskLevel === 'Critical' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
@@ -609,6 +629,11 @@ function App() {
                                                 }`}>
                                                     {user.riskLevel} RISK
                                                 </span>
+                                            </div>
+                                            <div className="flex flex-wrap gap-1 mb-6">
+                                                {user.userRoles && user.userRoles.map((r, idx) => (
+                                                    <span key={idx} className="text-[8px] font-black text-slate-600 uppercase tracking-widest">{r}</span>
+                                                ))}
                                             </div>
                                             <p className="text-slate-400 text-sm font-bold leading-relaxed mb-8 flex-1 italic">"{user.behaviorSummary}"</p>
                                             <div className="space-y-6 pt-6 border-t border-white/5 mt-auto">

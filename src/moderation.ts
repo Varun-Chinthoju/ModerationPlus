@@ -18,6 +18,15 @@ export async function handlePotentialInfraction(channel: TextChannel, targetUser
 
     console.log(`Analyzing potential infraction by ${targetUser.tag} in #${channel.name}`);
     
+    // Fetch member to get roles
+    let roles: string[] = [];
+    try {
+        const member = await channel.guild.members.fetch(targetUser.id);
+        roles = member.roles.cache.map(r => r.name).filter(n => n !== '@everyone');
+    } catch (e) {
+        console.log(`Could not fetch roles for ${targetUser.tag}`);
+    }
+
     // Gather context
     const messages = await channel.messages.fetch({ limit: 50, before: triggerMessage.id });
     
@@ -28,7 +37,7 @@ export async function handlePotentialInfraction(channel: TextChannel, targetUser
     const transcript = sorted.map(m => `[${m.createdAt.toISOString()}] ${m.author.tag}: ${m.content}`).join('\n');
     
     // Analyze
-    const analysis = await analyzeContext(transcript, targetUser.tag);
+    const analysis = await analyzeContext(transcript, targetUser.tag, roles);
     
     if (!analysis) {
         console.error("Analysis failed.");
@@ -39,6 +48,7 @@ export async function handlePotentialInfraction(channel: TextChannel, targetUser
     recordAction({
         timestamp: new Date().toISOString(),
         targetUser: targetUser.tag,
+        targetRoles: roles,
         channel: channel.name,
         violation: analysis.violation,
         reason: analysis.shortReason,
@@ -64,6 +74,7 @@ export async function handlePotentialInfraction(channel: TextChannel, targetUser
         .setColor(0xff0000)
         .addFields(
             { name: 'Channel', value: `<#${channel.id}>`, inline: true },
+            { name: 'User Roles', value: roles.join(', ') || 'None', inline: true },
             { name: 'Suggested Timeout', value: `${analysis.timeoutMinutes} minutes`, inline: true },
             { name: 'Short Reason', value: analysis.shortReason },
             { name: 'Detailed Analysis', value: analysis.detailedAnalysis }
@@ -139,6 +150,21 @@ export async function performMassScan(channel: TextChannel): Promise<MassScanRes
     // Sort oldest to newest for analysis
     const sorted = [...allMessages].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
     
+    // Fetch roles for all unique authors in the transcript
+    const uniqueAuthors = Array.from(new Set(sorted.map(m => m.author.id)));
+    const rolesMap: Record<string, string[]> = {};
+    
+    for (const authorId of uniqueAuthors) {
+        try {
+            const member = await channel.guild.members.fetch(authorId);
+            rolesMap[member.user.tag] = member.roles.cache.map(r => r.name).filter(n => n !== '@everyone');
+        } catch (e) {
+            // User might have left
+        }
+    }
+
+    const rolesString = Object.entries(rolesMap).map(([tag, roles]) => `${tag}: [${roles.join(', ')}]`).join('\n');
+
     // Update cache with the latest state
     if (allMessages.length > 0) {
         const latestMsg = allMessages.reduce((prev, current) => 
@@ -155,7 +181,7 @@ export async function performMassScan(channel: TextChannel): Promise<MassScanRes
     const transcript = sorted.map(m => `[${m.createdAt.toISOString()}] ${m.author.tag}: ${m.content}`).join('\n');
     
     // Perform AI Analysis
-    const result = await analyzeMassScan(transcript, sorted.length);
+    const result = await analyzeMassScan(transcript, sorted.length, rolesString);
     
     if (result) {
         recordMassScan({

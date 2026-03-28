@@ -1,6 +1,7 @@
 export interface ModerationAction {
     timestamp: string;
     targetUser: string;
+    targetRoles: string[]; // Added roles
     channel: string;
     violation: boolean;
     reason: string;
@@ -12,13 +13,22 @@ export interface MassScanReport {
     channel: string;
     totalMessages: number;
     generalConclusion: string;
-    usersAnalyzed: any[];
+    usersAnalyzed: UserSummary[];
 }
 
 export interface AccessLog {
     timestamp: string;
     ip: string;
     success: boolean;
+}
+
+export interface UserSummary {
+    userTag: string;
+    userRoles: string[]; // Added roles
+    behaviorSummary: string;
+    violatedRules: string[];
+    suggestedPunishment: string;
+    riskLevel: 'Low' | 'Medium' | 'High' | 'Critical';
 }
 
 export interface BotStats {
@@ -58,6 +68,10 @@ export function recordAccess(log: AccessLog) {
     if (stats.accessLogs.length > 20) stats.accessLogs.pop();
 }
 
+export function recordTimeout() {
+    stats.totalTimeouts++;
+}
+
 export function clearLogs() {
     stats.lastActions = [];
     stats.massScans = [];
@@ -65,10 +79,6 @@ export function clearLogs() {
 
 export function clearAccessLogs() {
     stats.accessLogs = [];
-}
-
-export function recordTimeout() {
-    stats.totalTimeouts++;
 }
 
 export function getStats(): BotStats & { uptime: number } {
