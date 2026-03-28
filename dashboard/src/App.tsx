@@ -204,7 +204,7 @@ function App() {
     const unifiedHistory = useMemo(() => {
         const infractions = (stats?.lastActions || []).map(a => ({ ...a, type: 'INFRACTION' as const }));
         
-        // Only show audits if in developer mode
+        // Only show historical audits if in developer mode
         const audits = isDevMode ? (stats?.massScans || []).map(s => ({
             timestamp: s.timestamp,
             targetUser: 'COMMUNITY AUDIT',
@@ -413,23 +413,21 @@ function App() {
                                 </div>
                             </div>
 
-                            {/* Neural Audit Tool (DEVELOPER ONLY) */}
-                            {isDevMode && (
-                                <div className="flex flex-wrap items-center gap-4 p-4 bg-red-500/5 border-red-500/10 rounded-[1.5rem] border">
-                                    <div className="flex items-center gap-3 px-4 py-2 border-r border-white/10 mr-2">
-                                        <FileSearch className="w-5 h-5 text-red-400" />
-                                        <span className="text-[10px] font-black text-red-400 uppercase tracking-[0.2em]">Neural Audit Tool</span>
-                                    </div>
-                                    <select value={selectedChannel} onChange={(e) => setSelectedChannel(e.target.value)} className="bg-slate-900/80 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none transition-all min-w-[180px] font-bold">
-                                        <option value="" disabled>Select Channel Target</option>
-                                        {channels.map(c => <option key={c.id} value={c.id}>#{c.name.toUpperCase()}</option>)}
-                                    </select>
-                                    <button onClick={handleMassScan} disabled={scanning || !selectedChannel} className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-[10px] font-black transition-all active:scale-95 uppercase tracking-widest bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-500/20">
-                                        {scanning ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Activity className="w-4 h-4" />}
-                                        <span>{scanning ? 'Auditing Community...' : 'Run Mass Scan'}</span>
-                                    </button>
+                            {/* Neural Audit Tool */}
+                            <div className={`flex flex-wrap items-center gap-4 p-4 ${isDevMode ? 'bg-red-500/5 border-red-500/10' : 'bg-blue-500/5 border-blue-500/10'} rounded-[1.5rem] border`}>
+                                <div className="flex items-center gap-3 px-4 py-2 border-r border-white/10 mr-2">
+                                    <FileSearch className={`w-5 h-5 ${isDevMode ? 'text-red-400' : 'text-blue-400'}`} />
+                                    <span className={`text-[10px] font-black ${isDevMode ? 'text-red-400' : 'text-blue-400'} uppercase tracking-[0.2em]`}>Neural Audit Tool</span>
                                 </div>
-                            )}
+                                <select value={selectedChannel} onChange={(e) => setSelectedChannel(e.target.value)} className="bg-slate-900/80 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none transition-all min-w-[180px] font-bold">
+                                    <option value="" disabled>Select Channel Target</option>
+                                    {channels.map(c => <option key={c.id} value={c.id}>#{c.name.toUpperCase()}</option>)}
+                                </select>
+                                <button onClick={handleMassScan} disabled={scanning || !selectedChannel} className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-[10px] font-black transition-all active:scale-95 uppercase tracking-widest ${isDevMode ? 'bg-red-600 hover:bg-red-500' : 'bg-blue-600 hover:bg-blue-500'} text-white shadow-lg shadow-${themeColor}-500/20`}>
+                                    {scanning ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Activity className="w-4 h-4" />}
+                                    <span>{scanning ? 'Auditing Community...' : 'Run Mass Scan'}</span>
+                                </button>
+                            </div>
                         </div>
                         <div className="flex-1 overflow-x-auto">
                             <table className="w-full text-left border-collapse">
@@ -446,9 +444,9 @@ function App() {
                                 <tbody className="divide-y divide-white/[0.02]">
                                     <AnimatePresence mode='popLayout'>
                                         {filteredHistory.map((action, i) => (
-                                            <motion.tr key={action.timestamp + i} layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className={`group hover:bg-white/[0.02] transition-all cursor-pointer ${action.type === 'AUDIT' ? 'bg-red-500/5' : ''}`} onClick={() => action.type === 'AUDIT' ? setSelectedAudit(action.auditData!) : setSelectedAction(action)}>
+                                            <motion.tr key={action.timestamp + i} layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className={`group hover:bg-white/[0.02] transition-all cursor-pointer ${action.type === 'AUDIT' ? (isDevMode ? 'bg-red-500/5' : 'bg-blue-500/5') : ''}`} onClick={() => action.type === 'AUDIT' ? setSelectedAudit(action.auditData!) : setSelectedAction(action)}>
                                                 <td className="px-8 py-6">
-                                                    <div className={`font-black tracking-tight transition-colors ${action.type === 'AUDIT' ? 'text-red-400' : 'text-slate-200 group-hover:text-white'}`}>{action.targetUser}</div>
+                                                    <div className={`font-black tracking-tight transition-colors ${action.type === 'AUDIT' ? (isDevMode ? 'text-red-400' : 'text-blue-400') : 'text-slate-200 group-hover:text-white'}`}>{action.targetUser}</div>
                                                     <div className="text-[10px] font-mono text-slate-600 mt-1 uppercase tracking-tighter">{new Date(action.timestamp).toLocaleString()}</div>
                                                 </td>
                                                 {isDevMode && (
@@ -463,13 +461,13 @@ function App() {
                                                 </td>
                                                 <td className="px-8 py-6">
                                                     <div className="flex justify-center">
-                                                        <span className={`px-4 py-1.5 rounded-lg text-[9px] font-black tracking-[0.2em] border ${action.type === 'AUDIT' ? 'bg-red-500/10 text-red-400 border-red-500/20' : action.violation ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-green-500/10 text-green-400 border-green-500/20'}`}>
+                                                        <span className={`px-4 py-1.5 rounded-lg text-[9px] font-black tracking-[0.2em] border ${action.type === 'AUDIT' ? `bg-${themeColor}-500/10 text-${themeColor}-400 border-${themeColor}-500/20` : action.violation ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-green-500/10 text-green-400 border-green-500/20'}`}>
                                                             {action.type === 'AUDIT' ? 'COMMUNITY AUDIT' : action.violation ? 'MALICIOUS' : 'SECURE'}
                                                         </span>
                                                     </div>
                                                 </td>
                                                 <td className="px-8 py-6 max-w-xs">
-                                                    <p className={`text-xs italic line-clamp-1 font-medium ${action.type === 'AUDIT' ? 'text-red-200' : 'text-slate-500 group-hover:text-slate-300'}`}>{action.reason}</p>
+                                                    <p className={`text-xs italic line-clamp-1 font-medium ${action.type === 'AUDIT' ? (isDevMode ? 'text-red-200' : 'text-blue-200') : 'text-slate-500 group-hover:text-slate-300'}`}>{action.reason}</p>
                                                 </td>
                                                 <td className="px-8 py-6 text-right">
                                                     <ChevronRight className={`w-5 h-5 text-slate-800 group-hover:${isDevMode ? 'text-red-400' : 'text-blue-400'} transition-all inline-block group-hover:translate-x-1`} />
