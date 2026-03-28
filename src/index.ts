@@ -31,8 +31,17 @@ app.get('/api/stats', (req, res) => {
 });
 
 app.delete('/api/dev/clear', (req, res) => {
+    const apiKey = req.headers['x-api-key'];
     const devKey = req.headers['x-dev-key'];
-    if (!process.env.DEV_KEY || devKey !== process.env.DEV_KEY) {
+
+    const isAuthorized = apiKey === process.env.DASHBOARD_KEY;
+    const isDevAuthorized = process.env.DEV_KEY && devKey === process.env.DEV_KEY;
+
+    if (!isAuthorized) {
+        return res.status(401).json({ error: 'Unauthorized: Invalid Dashboard Key' });
+    }
+
+    if (!isDevAuthorized) {
         return res.status(403).json({ error: 'Forbidden: Invalid Developer Key' });
     }
 
