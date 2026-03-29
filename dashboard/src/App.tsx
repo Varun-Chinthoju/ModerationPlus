@@ -119,7 +119,8 @@ function App() {
             setError('');
             if (response.data.guildId && !selectedGuild) setSelectedGuild(response.data.guildId);
         } catch (err: any) {
-            setError(err.response?.data?.error || 'Neural Link Error');
+            const msg = err.response?.data?.error || 'Neural Link Error';
+            setError(msg);
             if (err.response?.status === 401) setIsLoggedIn(false);
         } finally { setLoading(false); }
     };
@@ -143,7 +144,12 @@ function App() {
                 params: { guildId: selectedGuild }
             });
             setChannels(response.data);
-            if (response.data.length > 0) setSelectedChannel(prev => response.data.some((c: any) => c.id === prev) ? prev : response.data[0].id);
+            if (response.data.length > 0) {
+                const currentExists = response.data.some((c: any) => c.id === selectedChannel);
+                if (!currentExists) setSelectedChannel(response.data[0].id);
+            } else {
+                setSelectedChannel('');
+            }
         } catch (e) { console.error('Failed to fetch channels'); }
     };
 
@@ -203,6 +209,7 @@ function App() {
             const interval = setInterval(fetchData, 5000);
             return () => clearInterval(interval);
         }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isLoggedIn, botUrl, apiKey, username, selectedGuild, isDevMode, activeTab]);
 
     const handleLogin = async (e: React.FormEvent) => {
@@ -225,7 +232,17 @@ function App() {
 
     const unifiedHistory = useMemo(() => {
         const history = [...(stats?.lastActions || [])];
-        (stats?.massScans || []).forEach(s => history.push({ timestamp: s.timestamp, targetUser: 'COMMUNITY AUDIT', targetRoles: [], channel: s.channel, violation: true, reason: s.generalConclusion, analysis: '', type: 'AUDIT', auditData: s }));
+        (stats?.massScans || []).forEach(s => history.push({ 
+            timestamp: s.timestamp || new Date().toISOString(), 
+            targetUser: 'COMMUNITY AUDIT', 
+            targetRoles: [], 
+            channel: s.channel || 'unknown', 
+            violation: true, 
+            reason: s.generalConclusion || 'Scan completed.', 
+            analysis: '', 
+            type: 'AUDIT' as const, 
+            auditData: s 
+        }));
         return history.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     }, [stats]);
 
@@ -313,7 +330,7 @@ function App() {
                                             <circle cx="80" cy="80" r="70" fill="transparent" stroke="currentColor" strokeWidth="8" strokeDasharray={440} strokeDashoffset={440 - (440 * (stats?.communityVibe.score || 0)) / 100} strokeLinecap="round" className={`transition-all duration-1000 ${stats?.communityVibe.status === 'Chaotic' ? 'text-red-500' : stats?.communityVibe.status === 'Stable' ? 'text-green-500' : 'text-orange-500'}`} />
                                         </svg>
                                         <div className="absolute inset-0 flex flex-col items-center justify-center">
-                                            <div className="text-3xl font-black text-white">{stats?.communityVibe.status}</div>
+                                            <div className="text-3xl font-black text-white">{stats?.communityVibe.status || '--'}</div>
                                             <div className="text-[8px] font-black text-slate-500 uppercase tracking-widest">{stats?.communityVibe.label}</div>
                                         </div>
                                     </div>
@@ -333,15 +350,33 @@ function App() {
                                             <div className="relative group w-full md:w-80"><Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-600" /><input type="text" placeholder="Filter neural history..." className="w-full bg-slate-900/50 border border-white/5 rounded-2xl py-3 pl-12 pr-4 text-sm text-slate-300 focus:outline-none" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
                                         </div>
                                         <div className={`flex flex-wrap items-center gap-4 p-4 ${isDevMode ? 'bg-red-500/5 border-red-500/10' : 'bg-blue-500/5 border-blue-500/10'} rounded-[1.5rem] border`}>
-                                            <select value={selectedChannel} onChange={(e) => setSelectedChannel(e.target.value)} className="bg-slate-900/80 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none font-bold">{channels.map(c => <option key={c.id} value={c.id}>#{c.name.toUpperCase()}</option>)}</select>
+                                            <select value={selectedChannel} onChange={(e) => setSelectedChannel(e.target.value)} className="bg-slate-900/80 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none font-bold">
+                                                <option value="" disabled>Select Channel</option>
+                                                {channels.map(c => <option key={c.id} value={c.id}>#{c.name.toUpperCase()}</option>)}
+                                            </select>
                                             <button onClick={handleMassScan} disabled={scanning || !selectedChannel} className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest ${isDevMode ? 'bg-red-600' : 'bg-blue-600'} text-white`}>{scanning ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Activity className="w-4 h-4" />}<span>Run Community Audit</span></button>
                                         </div>
                                     </div>
-                                    <div className="flex-1 overflow-x-auto p-4"><table className="w-full text-left border-separate border-spacing-y-2"><thead><tr className="text-slate-600 text-[9px] font-black uppercase tracking-[0.4em]"><th className="px-6 py-4">Identity</th><th className="px-6 py-4">Source</th><th className="px-6 py-4 text-center">Status</th><th className="px-6 py-4">Conclusion</th><th className="px-6 py-4"></th></tr></thead><tbody>{filteredHistory.map((action, i) => (<tr key={i} className="group glass hover:bg-white/5 transition-all cursor-pointer rounded-2xl overflow-hidden" onClick={() => action.type === 'AUDIT' ? setSelectedAudit(action.auditData!) : setSelectedAction(action)}><td className="px-6 py-5 rounded-l-2xl"><div className="font-black text-sm text-white">{action.targetUser}</div><div className="text-[8px] font-black text-slate-600 uppercase mt-1">{new Date(action.timestamp).toLocaleTimeString()}</div></td><td className="px-6 py-5"><span className="text-[10px] font-black font-mono text-slate-500 uppercase">#{action.channel}</span></td><td className="px-6 py-5 text-center"><span className={`px-3 py-1 rounded-lg text-[8px] font-black tracking-widest border ${action.type === 'AUDIT' ? `bg-${themeColor}-500/10 text-${themeColor}-400 border-${themeColor}-500/20` : action.violation ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-green-500/10 text-green-400 border-green-500/20'}`}>{action.type === 'AUDIT' ? 'AUDIT' : action.violation ? 'RISK' : 'SECURE'}</span></td><td className="px-6 py-5 max-w-xs"><p className="text-xs italic line-clamp-1 font-bold text-slate-400">{action.reason}</p></td><td className="px-6 py-5 text-right rounded-r-2xl"><ChevronRight className="w-4 h-4 text-slate-700 group-hover:translate-x-1 transition-transform" /></td></tr>))}</tbody></table></div>
+                                    <div className="flex-1 overflow-x-auto p-4">
+                                        <table className="w-full text-left border-separate border-spacing-y-2">
+                                            <thead><tr className="text-slate-600 text-[9px] font-black uppercase tracking-[0.4em]"><th className="px-6 py-4">Identity</th><th className="px-6 py-4">Source</th><th className="px-6 py-4 text-center">Status</th><th className="px-6 py-4">Conclusion</th><th className="px-6 py-4"></th></tr></thead>
+                                            <tbody>
+                                                {filteredHistory.map((action, i) => (
+                                                    <tr key={i} className="group glass hover:bg-white/5 transition-all cursor-pointer rounded-2xl overflow-hidden" onClick={() => action.type === 'AUDIT' ? setSelectedAudit(action.auditData!) : setSelectedAction(action)}>
+                                                        <td className="px-6 py-5 rounded-l-2xl"><div className="font-black text-sm text-white">{action.targetUser}</div><div className="text-[8px] font-black text-slate-600 uppercase mt-1">{new Date(action.timestamp).toLocaleTimeString()}</div></td>
+                                                        <td className="px-6 py-5"><span className="text-[10px] font-black font-mono text-slate-500 uppercase">#{action.channel}</span></td>
+                                                        <td className="px-6 py-5 text-center"><span className={`px-3 py-1 rounded-lg text-[8px] font-black tracking-widest border ${action.type === 'AUDIT' ? `bg-${themeColor}-500/10 text-${themeColor}-400 border-${themeColor}-500/20` : action.violation ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-green-500/10 text-green-400 border-green-500/20'}`}>{action.type === 'AUDIT' ? 'AUDIT' : action.violation ? 'RISK' : 'SECURE'}</span></td>
+                                                        <td className="px-6 py-5 max-w-xs"><p className="text-xs italic line-clamp-1 font-bold text-slate-400">{action.reason}</p></td>
+                                                        <td className="px-6 py-5 text-right rounded-r-2xl"><ChevronRight className="w-4 h-4 text-slate-700 group-hover:translate-x-1 transition-transform" /></td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
                                 </div>
                                 <div className="space-y-8">
                                     <div className="glass rounded-[2.5rem] p-8 border border-white/5"><h2 className="text-xl font-black text-white uppercase mb-8 italic flex items-center gap-3"><History className="w-5 h-5 text-indigo-400" />Audit Trail</h2><div className="space-y-6">{(stats?.dashboardAuditLogs || []).map((log, i) => (<div key={i} className="p-4 bg-white/[0.02] rounded-2xl border border-white/5 text-[10px]"><div className="font-black text-slate-300">{log.user} <span className="text-slate-600 mx-1">→</span> {log.action}</div><div className="text-[8px] font-black text-indigo-500 mt-1 uppercase tracking-widest">{log.target ? `Target: ${log.target}` : new Date(log.timestamp).toLocaleTimeString()}</div></div>))}</div></div>
-                                    <div className="glass rounded-[2.5rem] p-8 border border-white/5"><h2 className="text-xl font-black text-white uppercase mb-8 italic flex items-center gap-3"><Key className="w-5 h-5 text-green-400" />Access Logs</h2><div className="space-y-6">{(stats?.accessLogs || []).map((log, i) => (<div key={i} className="flex items-center justify-between p-4 bg-white/[0.02] rounded-2xl border border-white/5"><div><div className="text-[10px] font-black text-slate-300">{log.ip}</div><div className="text-[8px] font-black text-slate-600 mt-1 uppercase">{new Date(log.timestamp).toLocaleTimeString()}</div></div><span className={`w-2 h-2 rounded-full ${log.success ? 'bg-green-500' : 'bg-red-500'}`} /></div>))}</div></div>
+                                    <div className="glass rounded-[2.5rem] p-8 border border-white/5"><h2 className="text-xl font-black text-white uppercase mb-8 italic flex items-center gap-3"><Key className="w-5 h-5 text-green-400" />Access Logs</h2><div className="space-y-6">{stats?.accessLogs.map((log, i) => (<div key={i} className="flex items-center justify-between p-4 bg-white/[0.02] rounded-2xl border border-white/5"><div><div className="text-[10px] font-black text-slate-300">{log.ip}</div><div className="text-[8px] font-black text-slate-600 mt-1 uppercase">{new Date(log.timestamp).toLocaleTimeString()}</div></div><span className={`w-2 h-2 rounded-full ${log.success ? 'bg-green-500' : 'bg-red-500'}`} /></div>))}</div></div>
                                 </div>
                             </div>
                         </motion.div>
@@ -402,7 +437,7 @@ function App() {
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/90 backdrop-blur-xl" onClick={() => setSelectedAudit(null)} />
                         <motion.div initial={{ scale: 0.9, y: 40 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 40 }} className="glass w-full max-w-[95vw] max-h-[95vh] rounded-[3rem] overflow-hidden relative z-10 border border-white/10 shadow-3xl flex flex-col">
                             <div className="p-10 border-b border-white/5 flex items-start justify-between bg-white/[0.02]">
-                                <div className="flex items-center gap-6"><div className={`p-4 bg-${themeColor}-500/20 rounded-2xl border border-${themeColor}-500/20`}><FileSearch className={`w-10 h-10 text-${themeColor}-400`} /></div><div><h3 className="text-4xl font-black text-white uppercase tracking-tighter italic">Neural Audit</h3><p className="text-slate-500 font-bold uppercase tracking-widest text-xs mt-1">Channel: <span className={`text-${themeColor}-400`}>#{selectedAudit.channel.toUpperCase()}</span> • Dataset: {selectedAudit.totalMessages} Neural Nodes</p></div></div>
+                                <div className="flex items-center gap-6"><div className={`p-4 bg-${themeColor}-500/20 rounded-2xl border border-${themeColor}-500/20`}><FileSearch className={`w-10 h-10 text-${themeColor}-400`} /></div><div><h3 className="text-4xl font-black text-white uppercase tracking-tighter italic">Neural Audit</h3><p className="text-slate-500 font-bold uppercase tracking-widest text-xs mt-1">Channel: <span className={`text-${themeColor}-400`}>#{selectedAudit.channel?.toUpperCase() || 'UNKNOWN'}</span> • Dataset: {selectedAudit.totalMessages} Neural Nodes</p></div></div>
                                 <div className="flex items-center gap-4"><button onClick={() => setSelectedAudit(null)} className="p-4 glass rounded-2xl hover:bg-white/10 transition-colors border border-white/5"><X className="w-8 h-8 text-slate-400" /></button></div>
                             </div>
                             <div className="flex-1 overflow-y-auto p-10 space-y-10 custom-scrollbar">

@@ -23,15 +23,30 @@
   },
   "1486126827528523958": {
     "guildId": "1486126827528523958",
-    "rulesChannelId": "1486175245663735908",
+    "rulesChannelId": "1486154098695868488",
     "modLogsChannelId": "1486175245663735908",
     "auditInterval": 100,
     "defaultTimeout": 10,
     "authorizedUsers": [
       {
         "username": "admin",
-        "key": "NeuralKey_958",
+        "key": "password",
         "role": "ADMIN"
+      },
+      {
+        "username": "banana",
+        "key": "Key",
+        "role": "ADMIN"
+      },
+      {
+        "username": "",
+        "key": "",
+        "role": "MOD"
+      },
+      {
+        "username": "",
+        "key": "",
+        "role": "MOD"
       }
     ]
   }
