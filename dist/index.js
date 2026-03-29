@@ -7,6 +7,7 @@ const discord_js_1 = require("discord.js");
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const client_1 = require("./client");
+const rules_1 = require("./rules");
 const moderation_1 = require("./moderation");
 const register_1 = require("./register");
 const stats_1 = require("./stats");
@@ -130,9 +131,9 @@ app.post('/api/timeout', async (req, res) => {
     const { guildId, userTag, minutes, reason } = req.body;
     if (!guildId || !userTag || !minutes)
         return res.status(400).json({ error: 'guildId, userTag, and minutes are required' });
+    const isDev = process.env.DEV_KEY && key === process.env.DEV_KEY;
     const { getAllConfigs } = require('./config');
     const configs = getAllConfigs();
-    const isDev = process.env.DEV_KEY && key === process.env.DEV_KEY;
     const config = Object.values(configs).find((c) => c.dashboardKey === key && key !== undefined && key !== '');
     // Authorization Check
     if (!isDev && (!config || config.guildId !== guildId)) {
@@ -148,7 +149,6 @@ app.post('/api/timeout', async (req, res) => {
             return res.status(404).json({ error: 'Member not found in server' });
         await member.timeout(minutes * 60 * 1000, `Neural Enforcement by Dashboard: ${reason || 'No reason provided'}`);
         (0, stats_1.recordTimeout)(guildId);
-        // Log to terminal
         (0, stats_1.recordAction)(guildId, {
             timestamp: new Date().toISOString(),
             targetUser: userTag,
@@ -187,7 +187,6 @@ app.post('/api/dev/private-scan', async (req, res) => {
             return res.status(403).json({ error: 'Forbidden: Missing Bot Permissions for this channel' });
         }
         const messages = await textChannel.messages.fetch({ limit: 100 });
-        // Ensure members are fetched so roles are available
         try {
             await textChannel.guild.members.fetch();
         }
@@ -292,14 +291,12 @@ client_1.client.once(discord_js_1.Events.ClientReady, async (readyClient) => {
     await (0, register_1.registerCommands)(readyClient.user.id);
     await setBotAvatar();
     // Initialize all configured server rules on startup
-    const { getAllConfigs } = require('./config');
-    const configs = getAllConfigs();
-    const { fetchRules } = require('./rules');
+    const configs = require('./config').getAllConfigs();
     for (const config of Object.values(configs)) {
         if (config.rulesChannelId) {
             console.log(`[Startup] Fetching rules for guild ${config.guildId}...`);
             try {
-                await fetchRules(config.guildId, config.rulesChannelId);
+                await (0, rules_1.fetchRules)(config.guildId, config.rulesChannelId);
             }
             catch (e) {
                 console.log(`[Startup] Could not fetch rules for ${config.guildId} (Missing Access)`);
@@ -308,21 +305,35 @@ client_1.client.once(discord_js_1.Events.ClientReady, async (readyClient) => {
     }
 });
 client_1.client.on(discord_js_1.Events.MessageCreate, async (message) => {
-    // Ignore direct messages
     if (!message.guild || !message.channel.isTextBased())
         return;
-    // Check if the message is from the trigger bot (e.g., Arcane)
     const config = (0, config_1.getConfig)(message.guild.id);
+    const textChannel = message.channel;
+    // Increment Pulse Counter
+    const currentPulse = (0, stats_1.incrementPulse)(message.guild.id);
+    const pulseThreshold = config?.auditInterval || 100;
+    if (currentPulse >= pulseThreshold && !message.author.bot) {
+        console.log(`[Neural Pulse] Threshold reached (${pulseThreshold}). Running auto-audit in #${textChannel.name}`);
+        (0, stats_1.resetPulse)(message.guild.id);
+        // Trigger non-blocking mass scan
+        (0, moderation_1.performMassScan)(textChannel).then(report => {
+            if (report)
+                console.log(`[Neural Pulse] Auto-audit completed for #${textChannel.name}`);
+        }).catch(e => {
+            console.log(`[Neural Pulse] Auto-audit failed for #${textChannel.name}: ${e.message}`);
+        });
+    }
+    // Trigger Bot Logic
     if (config?.triggerBotId && message.author.id === config.triggerBotId) {
         const targetUser = message.mentions.users.first();
         if (targetUser) {
-            await (0, moderation_1.handlePotentialInfraction)(message.channel, targetUser, message);
+            await (0, moderation_1.handlePotentialInfraction)(textChannel, targetUser, message);
         }
     }
     else {
         // PROACTIVE NEURAL PROFILING (1% chance on any message)
         if (Math.random() < 0.01 && !message.author.bot) {
-            await (0, moderation_1.handlePotentialInfraction)(message.channel, message.author, message, true);
+            await (0, moderation_1.handlePotentialInfraction)(textChannel, message.author, message, true);
         }
     }
 });
@@ -338,19 +349,28 @@ client_1.client.on(discord_js_1.Events.InteractionCreate, async (interaction) =>
                 const logChannel = options.getChannel('log-channel');
                 const triggerBot = options.getString('trigger-bot');
                 if (guildId && rulesChannel && logChannel) {
-                    const { saveConfig } = require('./config');
-                    saveConfig({
+                    (0, config_1.saveConfig)({
                         guildId,
                         rulesChannelId: rulesChannel.id,
                         modLogsChannelId: logChannel.id,
-                        triggerBotId: triggerBot || undefined
+                        triggerBotId: triggerBot || undefined,
+                        auditInterval: 100 // Default pulse
                     });
-                    const { fetchRules } = require('./rules');
-                    await fetchRules(guildId, rulesChannel.id);
+                    await (0, rules_1.fetchRules)(guildId, rulesChannel.id);
                     await interaction.reply({
                         content: `✅ **Server configuration saved!**\n\n**Next Steps:**\n1. Use \`/dashboard-key\` to set your private access password.\n2. Open the [Neural Dashboard](https://varun-chinthoju.github.io/ModerationPlus/) to monitor and audit your community.`,
                         flags: [discord_js_1.MessageFlags.Ephemeral]
                     });
+                }
+            }
+            if (commandName === 'config') {
+                if (!memberPermissions?.has('Administrator')) {
+                    return await interaction.reply({ content: 'Admin only.', flags: [discord_js_1.MessageFlags.Ephemeral] });
+                }
+                const interval = options.getInteger('audit-interval');
+                if (guildId && interval) {
+                    (0, config_1.saveConfig)({ guildId, auditInterval: interval });
+                    await interaction.reply({ content: `✅ Neural Audit Pulse interval set to every **${interval}** messages.`, flags: [discord_js_1.MessageFlags.Ephemeral] });
                 }
             }
             if (commandName === 'dashboard-key') {
@@ -359,8 +379,7 @@ client_1.client.on(discord_js_1.Events.InteractionCreate, async (interaction) =>
                 }
                 const key = options.getString('key');
                 if (guildId && key) {
-                    const { saveConfig } = require('./config');
-                    saveConfig({ guildId, dashboardKey: key });
+                    (0, config_1.saveConfig)({ guildId, dashboardKey: key });
                     await interaction.reply({ content: '✅ Dashboard key updated!', flags: [discord_js_1.MessageFlags.Ephemeral] });
                 }
             }
@@ -369,12 +388,10 @@ client_1.client.on(discord_js_1.Events.InteractionCreate, async (interaction) =>
                     await interaction.reply({ content: 'You do not have permission to use this.', flags: [discord_js_1.MessageFlags.Ephemeral] });
                     return;
                 }
-                const { getConfig } = require('./config');
-                const config = getConfig(interaction.guildId);
+                const config = (0, config_1.getConfig)(interaction.guildId);
                 if (config?.rulesChannelId) {
                     await interaction.deferReply({ flags: [discord_js_1.MessageFlags.Ephemeral] });
-                    const { fetchRules } = require('./rules');
-                    await fetchRules(interaction.guildId, config.rulesChannelId);
+                    await (0, rules_1.fetchRules)(interaction.guildId, config.rulesChannelId);
                     await interaction.editReply('Rules successfully refreshed!');
                 }
                 else {
@@ -391,7 +408,6 @@ client_1.client.on(discord_js_1.Events.InteractionCreate, async (interaction) =>
                 await interaction.deferReply({ flags: [discord_js_1.MessageFlags.Ephemeral] });
                 const message = interaction.targetMessage;
                 if (message.channel.isTextBased()) {
-                    // FIXED: Added forceLog: true to ensure results always go to mod logs
                     await (0, moderation_1.handlePotentialInfraction)(message.channel, message.author, message, false, true);
                     await interaction.editReply('Analysis requested. Check the mod logs channel for results.');
                 }

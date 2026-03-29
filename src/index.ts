@@ -1,12 +1,12 @@
-import { Events, TextChannel, MessageFlags } from 'discord.js';
+import { Events, TextChannel, MessageFlags, SlashCommandBuilder } from 'discord.js';
 import express from 'express';
 import cors from 'cors';
 import { client } from './client';
 import { fetchRules } from './rules';
 import { handlePotentialInfraction, performMassScan } from './moderation';
 import { registerCommands } from './register';
-import { recordTimeout, recordAccess, clearLogs, clearAccessLogs, getGuildStats, getGlobalStats, recordAction } from './stats';
-import { getConfig } from './config';
+import { recordTimeout, recordAccess, clearLogs, clearAccessLogs, getGuildStats, getGlobalStats, recordAction, incrementPulse, resetPulse } from './stats';
+import { getConfig, saveConfig } from './config';
 
 // Initialize Express for Dashboard API
 const app = express();
@@ -143,10 +143,9 @@ app.post('/api/timeout', async (req, res) => {
     
     if (!guildId || !userTag || !minutes) return res.status(400).json({ error: 'guildId, userTag, and minutes are required' });
 
+    const isDev = process.env.DEV_KEY && key === process.env.DEV_KEY;
     const { getAllConfigs } = require('./config');
     const configs = getAllConfigs();
-    
-    const isDev = process.env.DEV_KEY && key === process.env.DEV_KEY;
     const config = Object.values(configs).find((c: any) => c.dashboardKey === key && key !== undefined && key !== '');
     
     // Authorization Check
@@ -166,7 +165,6 @@ app.post('/api/timeout', async (req, res) => {
         await member.timeout(minutes * 60 * 1000, `Neural Enforcement by Dashboard: ${reason || 'No reason provided'}`);
         recordTimeout(guildId);
         
-        // Log to terminal
         recordAction(guildId, {
             timestamp: new Date().toISOString(),
             targetUser: userTag,
@@ -211,7 +209,6 @@ app.post('/api/dev/private-scan', async (req, res) => {
 
         const messages = await textChannel.messages.fetch({ limit: 100 });
         
-        // Ensure members are fetched so roles are available
         try {
             await textChannel.guild.members.fetch();
         } catch (e) {
@@ -326,9 +323,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   await setBotAvatar();
   
   // Initialize all configured server rules on startup
-  const { getAllConfigs } = require('./config');
-  const configs: Record<string, any> = getAllConfigs();
-  const { fetchRules } = require('./rules');
+  const configs: Record<string, any> = require('./config').getAllConfigs();
 
   for (const config of Object.values(configs)) {
       if (config.rulesChannelId) {
@@ -343,20 +338,37 @@ client.once(Events.ClientReady, async (readyClient) => {
 });
 
 client.on(Events.MessageCreate, async (message) => {
-    // Ignore direct messages
     if (!message.guild || !message.channel.isTextBased()) return;
     
-    // Check if the message is from the trigger bot (e.g., Arcane)
     const config = getConfig(message.guild.id);
+    const textChannel = message.channel as TextChannel;
+    
+    // Increment Pulse Counter
+    const currentPulse = incrementPulse(message.guild.id);
+    const pulseThreshold = config?.auditInterval || 100;
+
+    if (currentPulse >= pulseThreshold && !message.author.bot) {
+        console.log(`[Neural Pulse] Threshold reached (${pulseThreshold}). Running auto-audit in #${textChannel.name}`);
+        resetPulse(message.guild.id);
+        
+        // Trigger non-blocking mass scan
+        performMassScan(textChannel).then(report => {
+            if (report) console.log(`[Neural Pulse] Auto-audit completed for #${textChannel.name}`);
+        }).catch(e => {
+            console.log(`[Neural Pulse] Auto-audit failed for #${textChannel.name}: ${e.message}`);
+        });
+    }
+
+    // Trigger Bot Logic
     if (config?.triggerBotId && message.author.id === config.triggerBotId) {
         const targetUser = message.mentions.users.first();
         if (targetUser) {
-            await handlePotentialInfraction(message.channel as TextChannel, targetUser, message);
+            await handlePotentialInfraction(textChannel, targetUser, message);
         }
     } else {
         // PROACTIVE NEURAL PROFILING (1% chance on any message)
         if (Math.random() < 0.01 && !message.author.bot) {
-            await handlePotentialInfraction(message.channel as TextChannel, message.author, message, true);
+            await handlePotentialInfraction(textChannel, message.author, message, true);
         }
     }
 });
@@ -375,15 +387,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 const triggerBot = options.getString('trigger-bot');
 
                 if (guildId && rulesChannel && logChannel) {
-                    const { saveConfig } = require('./config');
                     saveConfig({
                         guildId,
                         rulesChannelId: rulesChannel.id,
                         modLogsChannelId: logChannel.id,
-                        triggerBotId: triggerBot || undefined
+                        triggerBotId: triggerBot || undefined,
+                        auditInterval: 100 // Default pulse
                     });
                     
-                    const { fetchRules } = require('./rules');
                     await fetchRules(guildId, rulesChannel.id);
                     
                     await interaction.reply({ 
@@ -393,13 +404,23 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 }
             }
 
+            if (commandName === 'config') {
+                if (!memberPermissions?.has('Administrator')) {
+                    return await interaction.reply({ content: 'Admin only.', flags: [MessageFlags.Ephemeral] });
+                }
+                const interval = options.getInteger('audit-interval');
+                if (guildId && interval) {
+                    saveConfig({ guildId, auditInterval: interval });
+                    await interaction.reply({ content: `✅ Neural Audit Pulse interval set to every **${interval}** messages.`, flags: [MessageFlags.Ephemeral] });
+                }
+            }
+
             if (commandName === 'dashboard-key') {
                 if (!memberPermissions?.has('Administrator')) {
                     return await interaction.reply({ content: 'Admin only.', flags: [MessageFlags.Ephemeral] });
                 }
                 const key = options.getString('key');
                 if (guildId && key) {
-                    const { saveConfig } = require('./config');
                     saveConfig({ guildId, dashboardKey: key });
                     await interaction.reply({ content: '✅ Dashboard key updated!', flags: [MessageFlags.Ephemeral] });
                 }
@@ -410,11 +431,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     await interaction.reply({ content: 'You do not have permission to use this.', flags: [MessageFlags.Ephemeral] });
                     return;
                 }
-                const { getConfig } = require('./config');
-                const config = getConfig(interaction.guildId);
+                const config = getConfig(interaction.guildId!);
                 if (config?.rulesChannelId) {
                     await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
-                    const { fetchRules } = require('./rules');
                     await fetchRules(interaction.guildId!, config.rulesChannelId);
                     await interaction.editReply('Rules successfully refreshed!');
                 } else {
@@ -433,7 +452,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 
                 const message = interaction.targetMessage;
                 if (message.channel.isTextBased()) {
-                    // FIXED: Added forceLog: true to ensure results always go to mod logs
                     await handlePotentialInfraction(message.channel as TextChannel, message.author, message as any, false, true);
                     await interaction.editReply('Analysis requested. Check the mod logs channel for results.');
                 } else {

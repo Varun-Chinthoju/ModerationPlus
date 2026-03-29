@@ -1,3 +1,5 @@
+import { MassScanResult } from './ai';
+
 export interface ModerationAction {
     timestamp: string;
     targetUser: string;
@@ -8,15 +10,6 @@ export interface ModerationAction {
     analysis: string;
     socialProfile?: string;
     type: 'INFRACTION' | 'AUDIT' | 'NORMAL';
-    auditData?: MassScanReport;
-}
-
-export interface MassScanReport {
-    timestamp: string;
-    channel: string;
-    totalMessages: number;
-    generalConclusion: string;
-    usersAnalyzed: any[];
 }
 
 export interface AccessLog {
@@ -30,77 +23,77 @@ export interface GuildStats {
     totalViolations: number;
     totalTimeouts: number;
     lastActions: ModerationAction[];
-    massScans: MassScanReport[];
+    massScans: MassScanResult[];
+    pulseCounter: number; // ADDED: Tracks messages until next auto-audit
 }
 
-export interface BotStats {
-    startTime: number;
-    accessLogs: AccessLog[];
-    guilds: Record<string, GuildStats>;
-}
+const statsMap = new Map<string, GuildStats>();
+let accessLogs: AccessLog[] = [];
+let startTime = Date.now();
 
-const stats: BotStats = {
-    startTime: Date.now(),
-    accessLogs: [],
-    guilds: {}
-};
-
-function getOrCreateGuildStats(guildId: string): GuildStats {
-    if (!stats.guilds[guildId]) {
-        stats.guilds[guildId] = {
+export function getGuildStats(guildId: string): GuildStats {
+    if (!statsMap.has(guildId)) {
+        statsMap.set(guildId, {
             totalEvaluations: 0,
             totalViolations: 0,
             totalTimeouts: 0,
             lastActions: [],
-            massScans: []
-        };
+            massScans: [],
+            pulseCounter: 0
+        });
     }
-    return stats.guilds[guildId];
+    return statsMap.get(guildId)!;
+}
+
+export function incrementPulse(guildId: string): number {
+    const stats = getGuildStats(guildId);
+    stats.pulseCounter++;
+    return stats.pulseCounter;
+}
+
+export function resetPulse(guildId: string) {
+    const stats = getGuildStats(guildId);
+    stats.pulseCounter = 0;
 }
 
 export function recordAction(guildId: string, action: ModerationAction) {
-    const g = getOrCreateGuildStats(guildId);
-    g.totalEvaluations++;
-    if (action.violation) g.totalViolations++;
-    g.lastActions.unshift(action);
-    if (g.lastActions.length > 100) g.lastActions.pop();
+    const stats = getGuildStats(guildId);
+    stats.totalEvaluations++;
+    if (action.violation) stats.totalViolations++;
+    
+    stats.lastActions.unshift(action);
+    if (stats.lastActions.length > 50) stats.lastActions.pop();
 }
 
-export function recordMassScan(guildId: string, report: MassScanReport) {
-    const g = getOrCreateGuildStats(guildId);
-    g.massScans.unshift(report);
-    if (g.massScans.length > 20) g.massScans.pop();
-}
-
-export function recordAccess(log: AccessLog) {
-    stats.accessLogs.unshift(log);
-    if (stats.accessLogs.length > 20) stats.accessLogs.pop();
+export function recordMassScan(guildId: string, report: MassScanResult) {
+    const stats = getGuildStats(guildId);
+    stats.massScans.unshift(report);
+    if (stats.massScans.length > 20) stats.massScans.pop();
 }
 
 export function recordTimeout(guildId: string) {
-    const g = getOrCreateGuildStats(guildId);
-    g.totalTimeouts++;
+    const stats = getGuildStats(guildId);
+    stats.totalTimeouts++;
+}
+
+export function recordAccess(log: AccessLog) {
+    accessLogs.unshift(log);
+    if (accessLogs.length > 20) accessLogs.pop();
 }
 
 export function clearLogs(guildId: string) {
-    if (stats.guilds[guildId]) {
-        stats.guilds[guildId].lastActions = [];
-        stats.guilds[guildId].massScans = [];
-    }
+    const stats = getGuildStats(guildId);
+    stats.lastActions = [];
+    stats.massScans = [];
 }
 
 export function clearAccessLogs() {
-    stats.accessLogs = [];
-}
-
-export function getGuildStats(guildId: string) {
-    return getOrCreateGuildStats(guildId);
+    accessLogs = [];
 }
 
 export function getGlobalStats() {
     return {
-        startTime: stats.startTime,
-        accessLogs: stats.accessLogs,
-        uptime: Math.floor((Date.now() - stats.startTime) / 1000)
+        uptime: Math.floor((Date.now() - startTime) / 1000),
+        accessLogs
     };
 }
