@@ -13,6 +13,11 @@
         "username": "Developer",
         "key": "DEVELOPER-KEY",
         "role": "ADMIN"
+      },
+      {
+        "username": "banana",
+        "key": "Key",
+        "role": "MOD"
       }
     ]
   },
