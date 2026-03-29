@@ -1,72 +1,29 @@
-# Moderation++ (AI Moderation Bot)
+# 🤖 Moderation++ | AI-Powered Discord Intelligence
 
-An intelligent, context-aware Discord moderation bot powered by Google's Gemini AI. This bot moves beyond simple keyword filters by understanding the flow of a conversation and applying server-specific rules to determine if a timeout is necessary.
+Moderation++ is a multi-server, AI-driven Discord moderation platform. It uses **Gemini 3.1 Flash Lite** to perform deep contextual analysis of conversations, providing standard infractions, community audits, and behavioral profiling.
 
-## 🚀 Features
+## 🚀 Admin Quick Start (Any Server)
 
--   **Contextual Analysis**: Uses Gemini-1.5-Flash to analyze up to 50 messages of conversation history to understand the nuance of potential infractions.
--   **Token Efficiency**: Only queries Gemini when triggered by a standard moderation bot (e.g., Arcane) or via a manual moderator command, saving on API costs.
--   **Dynamic Rules Ingestion**: Reads your server's `#rules` channel on startup. Update your rules in Discord, run `/refresh-rules`, and the AI's "brain" is instantly updated.
--   **Human-in-the-loop UI**: AI findings are sent to a private `#mod-logs` channel with detailed reasoning and interactive buttons (**Approve Timeout**, **Dismiss**) so moderators have the final say.
--   **On-Demand Review**: Right-click any message -> **Apps** -> **Analyze Context** to manually trigger an AI evaluation of any situation.
+Any administrator can now integrate Moderation++ into their server in 3 simple steps:
 
-## 🛠️ Tech Stack
+### 1. Initial Configuration
+Run the `/setup` command in your server to tell the AI where to find your rules and where to post reports.
+*   **Rules Channel**: The AI will read this channel to understand your specific server laws.
+*   **Log Channel**: This is where the AI will post infractions for human moderator approval.
 
--   **Node.js & TypeScript**
--   **discord.js v14**
--   **@google/genai** (Google Gemini API)
--   **dotenv**
+### 2. Secure Your Dashboard
+Run the `/dashboard-key` command to set your server's private access token.
+*   **Key**: Any secret word or password. You will use this to log into the web dashboard.
 
-## ⚙️ Setup Instructions
+### 3. Access the Terminal
+Open the web dashboard to see real-time monitoring and run community audits:
+👉 **[Open Moderation++ Dashboard](https://varun-chinthoju.github.io/ModerationPlus/)**
 
-### 1. Prerequisites
--   [Node.js](https://nodejs.org/) (v16.11.0 or higher)
--   A [Google AI Studio API Key](https://aistudio.google.com/)
--   A [Discord Bot Token](https://discord.com/developers/applications)
-
-### 2. Discord Developer Portal Configuration
-Enable the following **Privileged Gateway Intents** for your bot:
--   `Presence Intent`
--   `Server Members Intent`
--   `Message Content Intent`
-
-### 3. Installation
-1.  Clone the repository and enter the directory.
-2.  Install dependencies:
-    ```bash
-    npm install
-    ```
-3.  Create a `.env` file in the root directory:
-    ```env
-    DISCORD_TOKEN=your_discord_token
-    GEMINI_API_KEY=your_gemini_api_key
-    RULES_CHANNEL_ID=your_rules_channel_id
-    MOD_LOGS_CHANNEL_ID=your_mod_logs_channel_id
-    TRIGGER_BOT_ID=437808476106784770 # Default for Arcane
-    ```
-
-### 4. Running the Bot
-```bash
-# Development mode (auto-reloads)
-npm run dev
-
-# Build and start
-npm run build
-npm start
-```
-
-## 📜 Commands
-
--   `/refresh-rules`: (Admin only) Forces the bot to re-read and cache the content of your `#rules` channel.
--   **Analyze Context**: (Context Menu) Right-click any message to have Gemini evaluate the surrounding conversation.
-
-## 🛡️ Moderation Workflow
-
-1.  **Trigger**: A standard bot (like Arcane) issues a warning or a moderator manually triggers the analysis.
-2.  **Context Capture**: The bot grabs the last 50 messages from the channel.
-3.  **AI Analysis**: Gemini evaluates the transcript against the cached server rules.
-4.  **Review**: A report is sent to the `#mod-logs` channel.
-5.  **Action**: A moderator clicks **Approve** to apply the suggested timeout or **Dismiss** to ignore the warning.
+## 🧠 Neural Features
+*   **Contextual Infractions**: Deep analysis of trigger warnings based on server rules.
+*   **Neural Audit (Mass Scan)**: Audit the last 500 messages of any channel for a community health report.
+*   **Neural Profiling**: Proactive logging of "Normal" behavior to understand community vibe.
+*   **Human-in-the-Loop**: Buttons in mod-logs for instant `Approve` or `Dismiss` actions.
 
 ---
-*Created with Gemini CLI*
+*Created by vulcan_999456*
