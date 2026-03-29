@@ -5,7 +5,7 @@ import {
     Activity, ShieldAlert, Clock, User, ShieldCheck, 
     RefreshCw, Key, Settings, ChevronRight, 
     Terminal, Lock, LogOut, Search, Info, X, FileSearch, Download,
-    Cpu, Trash2, Database, AlertTriangle, Eye
+    Cpu, Trash2, Database, AlertTriangle, Eye, Server
 } from 'lucide-react';
 
 interface ModerationAction {
@@ -36,6 +36,7 @@ interface BotStats {
     massScans: MassScanResult[];
     accessLogs: AccessLog[];
     isDev: boolean;
+    guildId: string;
 }
 
 interface UserSummary {
@@ -73,6 +74,13 @@ interface Channel {
     name: string;
 }
 
+interface Guild {
+    id: string;
+    name: string;
+    icon: string | null;
+    memberCount: number;
+}
+
 function App() {
     const [apiKey, setApiKey] = useState(localStorage.getItem('dashboard_key') || '');
     const [botUrl, setBotUrl] = useState(localStorage.getItem('bot_url') || 'http://localhost:3000');
@@ -86,12 +94,13 @@ function App() {
     const [searchTerm, setSearchTerm] = useState('');
 
     const [channels, setChannels] = useState<Channel[]>([]);
+    const [guilds, setGuilds] = useState<Guild[]>([]);
     const [selectedChannel, setSelectedChannel] = useState('');
+    const [selectedGuild, setSelectedGuild] = useState('');
     const [scanning, setScanning] = useState(false);
 
     const isDevMode = stats?.isDev || false;
 
-    // Load remote config on init
     useEffect(() => {
         const loadConfig = async () => {
             try {
@@ -99,9 +108,7 @@ function App() {
                 if (res.data.bot_url && !localStorage.getItem('bot_url')) {
                     setBotUrl(res.data.bot_url);
                 }
-            } catch (e) {
-                // Config not found or local, ignore
-            }
+            } catch (e) {}
         };
         loadConfig();
     }, []);
@@ -111,10 +118,14 @@ function App() {
         setLoading(true);
         try {
             const response = await axios.get(`${botUrl}/api/stats`, {
-                headers: { 'x-api-key': apiKey }
+                headers: { 'x-api-key': apiKey },
+                params: { guildId: selectedGuild }
             });
             setStats(response.data);
             setError('');
+            if (response.data.guildId && !selectedGuild) {
+                setSelectedGuild(response.data.guildId);
+            }
         } catch (err: any) {
             setError(err.response?.data?.error || 'Failed to connect to bot.');
             if (err.response?.status === 401) setIsLoggedIn(false);
@@ -127,7 +138,8 @@ function App() {
         if (!apiKey || !isLoggedIn) return;
         try {
             const response = await axios.get(`${botUrl}/api/channels`, {
-                headers: { 'x-api-key': apiKey }
+                headers: { 'x-api-key': apiKey },
+                params: { guildId: selectedGuild }
             });
             setChannels(response.data);
             if (response.data.length > 0 && !selectedChannel) {
@@ -136,6 +148,16 @@ function App() {
         } catch (err) {
             console.error('Failed to fetch channels');
         }
+    };
+
+    const fetchGuilds = async () => {
+        if (!apiKey || !isLoggedIn || !isDevMode) return;
+        try {
+            const response = await axios.get(`${botUrl}/api/dev/guilds`, {
+                headers: { 'x-api-key': apiKey }
+            });
+            setGuilds(response.data);
+        } catch (err) {}
     };
 
     const handleMassScan = async () => {
@@ -177,7 +199,7 @@ function App() {
         try {
             await axios.delete(`${botUrl}/api/dev/clear`, {
                 headers: { 'x-api-key': apiKey },
-                data: { target }
+                data: { target, guildId: selectedGuild }
             });
             fetchData();
         } catch (err: any) {
@@ -199,10 +221,11 @@ function App() {
         if (isLoggedIn) {
             fetchData();
             fetchChannels();
+            if (isDevMode) fetchGuilds();
             const interval = setInterval(fetchData, 5000);
             return () => clearInterval(interval);
         }
-    }, [isLoggedIn, botUrl, apiKey]);
+    }, [isLoggedIn, botUrl, apiKey, selectedGuild, isDevMode]);
 
     const handleLogin = (e: React.FormEvent) => {
         e.preventDefault();
@@ -343,6 +366,20 @@ function App() {
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
+                        {isDevMode && guilds.length > 0 && (
+                            <div className="flex items-center gap-3 px-4 py-2 bg-white/5 rounded-2xl border border-white/5">
+                                <Server className="w-4 h-4 text-red-400" />
+                                <select 
+                                    value={selectedGuild}
+                                    onChange={(e) => setSelectedGuild(e.target.value)}
+                                    className="bg-transparent text-xs font-black uppercase text-white focus:outline-none cursor-pointer pr-4"
+                                >
+                                    {guilds.map(g => (
+                                        <option key={g.id} value={g.id} className="bg-slate-900 text-white">{g.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
                         <button onClick={fetchData} className="p-4 glass rounded-2xl hover:bg-white/5 transition-all active:scale-95 group">
                             <RefreshCw className={`w-6 h-6 text-slate-400 group-hover:text-${themeColor}-400 ${loading ? 'animate-spin' : ''}`} />
                         </button>
@@ -559,8 +596,8 @@ function App() {
                                         </div>
                                     </div>
                                     <div className="glass-card p-6 rounded-3xl bg-white/[0.02]">
-                                        <div className="text-[10px] font-black text-slate-600 uppercase mb-2 tracking-[0.2em]">AI Confidence</div>
-                                        <div className="text-xl font-black text-white tracking-tight">99.8% Core</div>
+                                        <div className="text-[10px] font-black text-slate-600 uppercase mb-2 tracking-[0.2em]">Source Method</div>
+                                        <div className="text-xl font-black text-white uppercase tracking-tight">{selectedAction.type === 'NORMAL' ? 'Proactive' : 'Triggered'}</div>
                                     </div>
                                 </div>
                                 <div className="space-y-4">
@@ -605,7 +642,14 @@ function App() {
                                         <motion.div key={i} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }} className="glass-card p-8 rounded-[2.5rem] border-white/5 hover:border-white/10 transition-all group flex flex-col h-full bg-white/[0.01]">
                                             <div className="flex items-center justify-between mb-2">
                                                 <div className={`font-black text-xl text-white group-hover:text-${themeColor}-400 transition-colors tracking-tighter`}>{user.userTag}</div>
-                                                <span className={`px-4 py-1.5 rounded-xl text-[9px] font-black tracking-[0.2em] border ${user.riskLevel === 'Critical' ? 'bg-red-500/20 text-red-400 border-red-500/30' : user.riskLevel === 'High' ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' : user.riskLevel === 'Medium' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' : 'bg-green-500/20 text-green-400 border-green-500/20'}`}>{user.riskLevel} RISK</span>
+                                                <span className={`px-4 py-1.5 rounded-xl text-[9px] font-black tracking-[0.2em] border ${
+                                                    user.riskLevel === 'Critical' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
+                                                    user.riskLevel === 'High' ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' :
+                                                    user.riskLevel === 'Medium' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' :
+                                                    'bg-green-500/20 text-green-400 border-green-500/30'
+                                                }`}>
+                                                    {user.riskLevel} RISK
+                                                </span>
                                             </div>
                                             {isDevMode && (
                                                 <div className="flex flex-wrap gap-1 mb-6">{user.userRoles && user.userRoles.map((r, idx) => <span key={idx} className="text-[8px] font-black text-slate-600 uppercase tracking-widest">{r}</span>)}</div>

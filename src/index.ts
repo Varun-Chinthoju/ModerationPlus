@@ -5,7 +5,7 @@ import { client } from './client';
 import { fetchRules } from './rules';
 import { handlePotentialInfraction, performMassScan } from './moderation';
 import { registerCommands } from './register';
-import { getStats, recordTimeout, recordAccess, clearLogs, clearAccessLogs } from './stats';
+import { recordTimeout, recordAccess, clearLogs, clearAccessLogs, getGuildStats, getGlobalStats } from './stats';
 
 // Initialize Express for Dashboard API
 const app = express();
@@ -15,39 +15,73 @@ app.use(express.json());
 app.get('/api/stats', (req, res) => {
     const key = req.headers['x-api-key'];
     const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+    const requestedGuildId = req.query.guildId as string;
     
-    const isDashboardKey = key === process.env.DASHBOARD_KEY;
+    const { getAllConfigs } = require('./config');
+    const configs = getAllConfigs();
+    
     const isDevKey = process.env.DEV_KEY && key === process.env.DEV_KEY;
-    const isAuthorized = isDashboardKey || isDevKey;
+    
+    let authorizedGuildId: string | null = null;
+    if (isDevKey) {
+        authorizedGuildId = requestedGuildId || Object.keys(configs)[0];
+    } else {
+        const config = Object.values(configs).find((c: any) => c.dashboardKey === key);
+        if (config) authorizedGuildId = (config as any).guildId;
+    }
+
+    const isAuthorized = !!authorizedGuildId;
 
     // Record the access attempt
     recordAccess({
         timestamp: new Date().toISOString(),
         ip: Array.isArray(ip) ? ip[0] : ip,
-        success: !!isAuthorized
+        success: isAuthorized
     });
 
     if (!isAuthorized) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
     
+    const guildStats = getGuildStats(authorizedGuildId!);
+    const globalStats = getGlobalStats();
+
     res.json({
-        ...getStats(),
+        ...globalStats,
+        ...guildStats,
+        guildId: authorizedGuildId,
         isDev: !!isDevKey
     });
+});
+
+app.get('/api/dev/guilds', (req, res) => {
+    const key = req.headers['x-api-key'];
+    if (!process.env.DEV_KEY || key !== process.env.DEV_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const guilds = client.guilds.cache.map(g => ({
+        id: g.id,
+        name: g.name,
+        icon: g.iconURL(),
+        memberCount: g.memberCount
+    }));
+
+    res.json(guilds);
 });
 
 app.delete('/api/dev/clear', (req, res) => {
     const key = req.headers['x-api-key'];
     const isDevAuthorized = process.env.DEV_KEY && key === process.env.DEV_KEY;
+    const guildId = req.body.guildId;
 
     if (!isDevAuthorized) {
         return res.status(403).json({ error: 'Forbidden: Developer Key Required' });
     }
 
     const { target } = req.body;
-    if (target === 'logs') {
-        clearLogs();
+    if (target === 'logs' && guildId) {
+        clearLogs(guildId);
         res.json({ success: true, message: 'Neural monitoring logs cleared' });
     } else if (target === 'access') {
         clearAccessLogs();
@@ -59,23 +93,25 @@ app.delete('/api/dev/clear', (req, res) => {
 
 app.get('/api/channels', async (req, res) => {
     const key = req.headers['x-api-key'];
-    const isDev = process.env.DEV_KEY && key === process.env.DEV_KEY;
-    const isAuthorized = key === process.env.DASHBOARD_KEY || isDev;
+    const requestedGuildId = req.query.guildId as string;
     
-    if (!isAuthorized) {
-        console.log(`[API] Unauthorized channel fetch attempt from ${req.ip}`);
-        return res.status(401).json({ error: 'Unauthorized' });
+    const { getAllConfigs } = require('./config');
+    const configs = getAllConfigs();
+    
+    const isDev = process.env.DEV_KEY && key === process.env.DEV_KEY;
+    
+    let targetGuildId: string | null = null;
+    if (isDev) {
+        targetGuildId = requestedGuildId || Object.keys(configs)[0];
+    } else {
+        const config = Object.values(configs).find((c: any) => c.dashboardKey === key);
+        if (config) targetGuildId = (config as any).guildId;
     }
 
-    try {
-        const guilds = await client.guilds.fetch();
-        const firstGuildBase = guilds.first();
-        
-        if (!firstGuildBase) {
-            return res.status(404).json({ error: 'Bot is not in any guilds' });
-        }
+    if (!targetGuildId) return res.status(401).json({ error: 'Unauthorized' });
 
-        const guild = await firstGuildBase.fetch();
+    try {
+        const guild = await client.guilds.fetch(targetGuildId);
         const fetchedChannels = await guild.channels.fetch();
 
         const sensitiveKeywords = ['mod', 'admin', 'staff', 'log', 'private', 'dev'];
@@ -83,7 +119,7 @@ app.get('/api/channels', async (req, res) => {
         const channels = fetchedChannels
             .filter(c => c !== null && c.isTextBased() && !c.isThread())
             .filter(c => {
-                if (isDev) return true; // Dev sees everything
+                if (isDev) return true; 
                 const name = (c as any).name.toLowerCase();
                 return !sensitiveKeywords.some(word => name.includes(word));
             })
@@ -320,7 +356,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     const member = await interaction.guild.members.fetch(targetUserId);
                     if (member) {
                         await member.timeout(timeoutMinutes * 60 * 1000, `AI Moderation approved by ${interaction.user.tag}`);
-                        recordTimeout();
+                        recordTimeout(interaction.guildId!);
                         await interaction.update({ content: `Timeout of ${timeoutMinutes}m applied to <@${targetUserId}> by ${interaction.user.tag}.`, components: [] });
                     } else {
                         await interaction.update({ content: `User not found in server.`, components: [] });

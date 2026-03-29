@@ -44,7 +44,7 @@ async function handlePotentialInfraction(channel, targetUser, triggerMessage, is
         return;
     }
     // Record the action for the dashboard (ALWAYS log for history)
-    (0, stats_1.recordAction)({
+    (0, stats_1.recordAction)(channel.guild.id, {
         timestamp: new Date().toISOString(),
         targetUser: targetUser.tag,
         targetRoles: roles,
@@ -154,7 +154,7 @@ async function performMassScan(channel) {
             generalConclusion: result.generalConclusion,
             usersAnalyzed: result.usersAnalyzed
         };
-        (0, stats_1.recordMassScan)(fullReport);
+        (0, stats_1.recordMassScan)(channel.guild.id, fullReport);
         return fullReport;
     }
     return null;
