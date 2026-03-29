@@ -226,6 +226,19 @@ client.once(Events.ClientReady, async (readyClient) => {
   console.log(`Ready! Logged in as ${readyClient.user.tag}`);
   
   await registerCommands(readyClient.user.id);
+
+  // Set Bot Avatar
+  const fs = require('fs');
+  const path = require('path');
+  const avatarPath = path.join(__dirname, '../Profile Pic.png');
+  if (fs.existsSync(avatarPath)) {
+      try {
+          await readyClient.user.setAvatar(avatarPath);
+          console.log('[Identity] Bot avatar updated successfully.');
+      } catch (e) {
+          console.log('[Identity] Avatar update skipped (rate limited or same image).');
+      }
+  }
   
   // Initialize all configured server rules on startup
   const { getAllConfigs } = require('./config');

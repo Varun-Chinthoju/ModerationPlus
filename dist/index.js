@@ -201,6 +201,19 @@ app.listen(PORT, () => console.log(`API Dashboard server running on port ${PORT}
 client_1.client.once(discord_js_1.Events.ClientReady, async (readyClient) => {
     console.log(`Ready! Logged in as ${readyClient.user.tag}`);
     await (0, register_1.registerCommands)(readyClient.user.id);
+    // Set Bot Avatar
+    const fs = require('fs');
+    const path = require('path');
+    const avatarPath = path.join(__dirname, '../Profile Pic.png');
+    if (fs.existsSync(avatarPath)) {
+        try {
+            await readyClient.user.setAvatar(avatarPath);
+            console.log('[Identity] Bot avatar updated successfully.');
+        }
+        catch (e) {
+            console.log('[Identity] Avatar update skipped (rate limited or same image).');
+        }
+    }
     // Initialize all configured server rules on startup
     const { getAllConfigs } = require('./config');
     const configs = getAllConfigs();
