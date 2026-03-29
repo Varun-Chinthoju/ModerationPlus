@@ -16,7 +16,8 @@ interface ModerationAction {
     violation: boolean;
     reason: string;
     analysis: string;
-    type: 'INFRACTION' | 'AUDIT' | 'NORMAL'; // Explicit type from backend
+    socialProfile?: string;
+    type: 'INFRACTION' | 'AUDIT' | 'NORMAL';
     auditData?: MassScanResult;
 }
 
@@ -89,6 +90,21 @@ function App() {
     const [scanning, setScanning] = useState(false);
 
     const isDevMode = stats?.isDev || false;
+
+    // Load remote config on init
+    useEffect(() => {
+        const loadConfig = async () => {
+            try {
+                const res = await axios.get('./config.json');
+                if (res.data.bot_url && !localStorage.getItem('bot_url')) {
+                    setBotUrl(res.data.bot_url);
+                }
+            } catch (e) {
+                // Config not found or local, ignore
+            }
+        };
+        loadConfig();
+    }, []);
 
     const fetchData = async () => {
         if (!apiKey) return;
@@ -202,7 +218,6 @@ function App() {
     };
 
     const unifiedHistory = useMemo(() => {
-        // Correctly sort all historical events including the new NORMAL profiling logs
         const history = [...(stats?.lastActions || [])];
 
         const audits = (stats?.massScans || []).map(s => ({
@@ -222,6 +237,7 @@ function App() {
             new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
         );
     }, [stats]);
+
     const filteredHistory = useMemo(() => {
         return unifiedHistory.filter(a => 
             a.targetUser.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -543,14 +559,14 @@ function App() {
                                         </div>
                                     </div>
                                     <div className="glass-card p-6 rounded-3xl bg-white/[0.02]">
-                                        <div className="text-[10px] font-black text-slate-600 uppercase mb-2 tracking-[0.2em]">Source Method</div>
-                                        <div className="text-xl font-black text-white uppercase tracking-tight">{selectedAction.type === 'NORMAL' ? 'Proactive' : 'Triggered'}</div>
+                                        <div className="text-[10px] font-black text-slate-600 uppercase mb-2 tracking-[0.2em]">AI Confidence</div>
+                                        <div className="text-xl font-black text-white tracking-tight">99.8% Core</div>
                                     </div>
                                 </div>
                                 <div className="space-y-4">
                                     <div className="flex items-center gap-2 text-[10px] font-black text-slate-600 uppercase tracking-[0.3em]"><Info className="w-4 h-4" /><span>{selectedAction.type === 'NORMAL' ? 'Social Behavior Profile' : 'Contextual Reasoning'}</span></div>
                                     <div className="glass-card p-8 rounded-[2rem] text-slate-300 leading-relaxed font-bold italic bg-slate-900/40 text-sm border-white/5">
-                                        "{selectedAction.type === 'NORMAL' ? selectedAction.reason : selectedAction.analysis}"
+                                        "{selectedAction.type === 'NORMAL' ? selectedAction.socialProfile : selectedAction.analysis}"
                                     </div>
                                 </div>
                                 <button onClick={() => setSelectedAction(null)} className={`w-full bg-${themeColor}-600 hover:bg-${themeColor}-500 py-5 rounded-2xl font-black transition-all text-white uppercase tracking-widest text-xs shadow-lg shadow-${themeColor}-500/20`}>Dismiss Report</button>

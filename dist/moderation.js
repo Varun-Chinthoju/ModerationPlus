@@ -48,7 +48,8 @@ async function handlePotentialInfraction(channel, targetUser, triggerMessage, is
         violation: analysis.violation,
         reason: analysis.shortReason,
         analysis: analysis.detailedAnalysis,
-        type: analysis.violation ? 'INFRACTION' : 'NORMAL' // Correctly type the log
+        socialProfile: analysis.socialProfile, // Pass profile
+        type: analysis.violation ? 'INFRACTION' : 'NORMAL'
     });
     if (!analysis.violation) {
         console.log(`[Neural Profiling] Logged normal interaction for ${targetUser.tag}: ${analysis.socialProfile}`);
@@ -150,13 +151,15 @@ async function performMassScan(channel) {
     // Perform AI Analysis
     const result = await (0, ai_1.analyzeMassScan)(transcript, sorted.length, rolesString);
     if (result) {
-        (0, stats_1.recordMassScan)({
+        const fullReport = {
             timestamp: new Date().toISOString(),
             channel: channel.name,
             totalMessages: result.totalMessages,
             generalConclusion: result.generalConclusion,
             usersAnalyzed: result.usersAnalyzed
-        });
+        };
+        (0, stats_1.recordMassScan)(fullReport);
+        return fullReport;
     }
-    return result;
+    return null;
 }

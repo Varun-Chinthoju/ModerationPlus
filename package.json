@@ -5,6 +5,7 @@
   "scripts": {
     "start": "ts-node src/index.ts",
     "dev": "ts-node src/index.ts",
+    "start:pm2": "pm2 start src/index.ts --name moderation-plus --interpreter ts-node",
     "build": "tsc",
     "deploy-dashboard": "cd dashboard && npm run build && gh-pages -d dist"
   },

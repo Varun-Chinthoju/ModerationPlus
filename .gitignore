@@ -7,3 +7,4 @@ dist/
 .DS_Store
 /conductor/
 \n# Developer local files\ndev/\n.dev_key
+dashboard/public/config.json
