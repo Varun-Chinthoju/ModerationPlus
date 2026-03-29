@@ -23,7 +23,6 @@ app.get('/api/stats', (req, res) => {
     
     const isDevKey = process.env.DEV_KEY && key === process.env.DEV_KEY;
     
-    // Find guild for standard mods, or allow any for dev
     let authorizedGuildId: string | null = null;
     if (isDevKey) {
         authorizedGuildId = requestedGuildId || Object.keys(configs)[0];
@@ -34,7 +33,6 @@ app.get('/api/stats', (req, res) => {
 
     const isAuthorized = !!authorizedGuildId;
 
-    // Record the access attempt
     recordAccess({
         timestamp: new Date().toISOString(),
         ip: Array.isArray(ip) ? ip[0] : ip,
@@ -47,12 +45,14 @@ app.get('/api/stats', (req, res) => {
     
     const guildStats = getGuildStats(authorizedGuildId!);
     const globalStats = getGlobalStats();
+    const guildConfig = getConfig(authorizedGuildId!);
 
     res.json({
         ...globalStats,
         ...guildStats,
         guildId: authorizedGuildId,
-        isDev: !!isDevKey
+        isDev: !!isDevKey,
+        defaultTimeout: guildConfig?.defaultTimeout || 10 // FIXED: Pass default timeout to dashboard
     });
 });
 
@@ -157,9 +157,7 @@ app.post('/api/timeout', async (req, res) => {
         const guild = await client.guilds.fetch(guildId);
         if (!guild) return res.status(404).json({ error: 'Guild not found' });
 
-        // OPTIMIZED: Search cached members first, otherwise fetch by tag
         let member = guild.members.cache.find(m => m.user.tag === userTag || m.user.username === userTag);
-        
         if (!member) {
             const members = await guild.members.fetch();
             member = members.find(m => m.user.tag === userTag || m.user.username === userTag);
@@ -214,7 +212,6 @@ app.post('/api/dev/private-scan', async (req, res) => {
 
         const messages = await textChannel.messages.fetch({ limit: 100 });
         
-        // Ensure members are fetched so roles are available (Check cache first)
         const authorIds = Array.from(new Set(messages.map(m => m.author.id)));
         try {
             await textChannel.guild.members.fetch({ user: authorIds });
@@ -286,7 +283,6 @@ app.post('/api/mass-scan', async (req, res) => {
 
         const textChannel = channel as TextChannel;
 
-        // Security Check: Standard mods can only scan their own guild's channels
         if (!isDevKey && textChannel.guild.id !== authorizedGuildId) {
             return res.status(403).json({ error: 'Forbidden: You can only scan channels in your own server.' });
         }
@@ -329,7 +325,6 @@ client.once(Events.ClientReady, async (readyClient) => {
   await registerCommands(readyClient.user.id);
   await setBotAvatar();
   
-  // Initialize all configured server rules on startup
   const configs: Record<string, any> = require('./config').getAllConfigs();
 
   for (const config of Object.values(configs)) {
@@ -350,7 +345,6 @@ client.on(Events.MessageCreate, async (message) => {
     const config = getConfig(message.guild.id);
     const textChannel = message.channel as TextChannel;
     
-    // Increment Pulse Counter
     const currentPulse = incrementPulse(message.guild.id);
     const pulseThreshold = config?.auditInterval || 100;
 
@@ -358,7 +352,6 @@ client.on(Events.MessageCreate, async (message) => {
         console.log(`[Neural Pulse] Threshold reached (${pulseThreshold}). Running auto-audit in #${textChannel.name}`);
         resetPulse(message.guild.id);
         
-        // Trigger non-blocking mass scan
         performMassScan(textChannel).then(report => {
             if (report) console.log(`[Neural Pulse] Auto-audit completed for #${textChannel.name}`);
         }).catch(e => {
@@ -366,14 +359,12 @@ client.on(Events.MessageCreate, async (message) => {
         });
     }
 
-    // Trigger Bot Logic
     if (config?.triggerBotId && message.author.id === config.triggerBotId) {
         const targetUser = message.mentions.users.first();
         if (targetUser) {
             await handlePotentialInfraction(textChannel, targetUser, message);
         }
     } else {
-        // PROACTIVE NEURAL PROFILING (1% chance on any message)
         if (Math.random() < 0.01 && !message.author.bot) {
             await handlePotentialInfraction(textChannel, message.author, message, true);
         }
@@ -399,7 +390,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
                         rulesChannelId: rulesChannel.id,
                         modLogsChannelId: logChannel.id,
                         triggerBotId: triggerBot || undefined,
-                        auditInterval: 100 // Default pulse
+                        auditInterval: 100,
+                        defaultTimeout: 10 // FIXED: Initialize default timeout
                     });
                     
                     await fetchRules(guildId, rulesChannel.id);
@@ -416,9 +408,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     return await interaction.reply({ content: 'Admin only.', flags: [MessageFlags.Ephemeral] });
                 }
                 const interval = options.getInteger('audit-interval');
-                if (guildId && interval) {
-                    saveConfig({ guildId, auditInterval: interval });
-                    await interaction.reply({ content: `✅ Neural Audit Pulse interval set to every **${interval}** messages.`, flags: [MessageFlags.Ephemeral] });
+                const timeout = options.getInteger('default-timeout'); // FIXED: Handle default-timeout option
+                
+                if (guildId) {
+                    if (interval) saveConfig({ guildId, auditInterval: interval });
+                    if (timeout) saveConfig({ guildId, defaultTimeout: timeout });
+                    
+                    await interaction.reply({ 
+                        content: `✅ **Configuration updated!**\n\n${interval ? `• Audit Interval: every **${interval}** messages\n` : ''}${timeout ? `• Default Timeout: **${timeout}** minutes` : ''}`, 
+                        flags: [MessageFlags.Ephemeral] 
+                    });
                 }
             }
 
@@ -505,7 +504,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 });
 
-// Basic error handling
 process.on('unhandledRejection', error => {
 	console.error('Unhandled promise rejection:', error);
 });

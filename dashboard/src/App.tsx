@@ -5,7 +5,7 @@ import {
     Activity, ShieldAlert, Clock, User, ShieldCheck, 
     RefreshCw, Key, ChevronRight, 
     Terminal, Lock, LogOut, Search, Info, X, FileSearch, Download,
-    Cpu, Trash2, Database, AlertTriangle, Eye, Server, Gavel
+    Cpu, Trash2, Database, AlertTriangle, Eye, Server, Gavel, Timer
 } from 'lucide-react';
 
 interface ModerationAction {
@@ -37,6 +37,7 @@ interface BotStats {
     accessLogs: AccessLog[];
     isDev: boolean;
     guildId: string;
+    defaultTimeout: number; // ADDED: Backend provided default
 }
 
 interface UserSummary {
@@ -98,6 +99,9 @@ function App() {
     const [selectedChannel, setSelectedChannel] = useState('');
     const [selectedGuild, setSelectedGuild] = useState('');
     const [scanning, setScanning] = useState(false);
+    
+    // Configurable Timeout State
+    const [sessionTimeout, setSessionTimeout] = useState(10);
 
     const isDevMode = stats?.isDev || false;
 
@@ -122,6 +126,12 @@ function App() {
                 params: { guildId: selectedGuild }
             });
             setStats(response.data);
+            
+            // Sync session timeout with server default if not manually changed
+            if (response.data.defaultTimeout && sessionTimeout === 10) {
+                setSessionTimeout(response.data.defaultTimeout);
+            }
+            
             setError('');
             if (response.data.guildId && !selectedGuild) {
                 setSelectedGuild(response.data.guildId);
@@ -177,7 +187,8 @@ function App() {
         }
     };
 
-    const handleTimeout = async (userTag: string, minutes: number = 10) => {
+    const handleTimeout = async (userTag: string, minutesOverride?: number) => {
+        const minutes = minutesOverride || sessionTimeout;
         if (!confirm(`Are you sure you want to issue a ${minutes}m timeout to ${userTag}?`)) return;
         try {
             await axios.post(`${botUrl}/api/timeout`, 
@@ -448,7 +459,28 @@ function App() {
                             </div>
                         </div>
                     </div>
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-6">
+                        {/* THE CONFIGURABLE TIMEOUT PICKER */}
+                        <div className="flex items-center gap-3 px-5 py-3 bg-white/5 rounded-2xl border border-white/5 group hover:border-white/10 transition-all">
+                            <Timer className={`w-4 h-4 text-${themeColor}-400`} />
+                            <div className="flex flex-col">
+                                <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Gavel Duration</span>
+                                <select 
+                                    value={sessionTimeout}
+                                    onChange={(e) => setSessionTimeout(parseInt(e.target.value))}
+                                    className="bg-transparent text-xs font-black uppercase text-white focus:outline-none cursor-pointer pr-2"
+                                >
+                                    <option value="1" className="bg-slate-900">1 Minute</option>
+                                    <option value="5" className="bg-slate-900">5 Minutes</option>
+                                    <option value="10" className="bg-slate-900">10 Minutes</option>
+                                    <option value="30" className="bg-slate-900">30 Minutes</option>
+                                    <option value="60" className="bg-slate-900">1 Hour</option>
+                                    <option value="1440" className="bg-slate-900">24 Hours</option>
+                                    <option value="10080" className="bg-slate-900">1 Week</option>
+                                </select>
+                            </div>
+                        </div>
+
                         {isDevMode && guilds.length > 0 && (
                             <div className="flex items-center gap-3 px-4 py-2 bg-white/5 rounded-2xl border border-white/5">
                                 <Server className="w-4 h-4 text-red-400" />
@@ -473,7 +505,7 @@ function App() {
                     </div>
                 </motion.header>
 
-                {/* THE OLD BAR (Stats Bar) */}
+                {/* Stats Bar */}
                 <motion.div 
                     initial={{ y: 20, opacity: 0 }}
                     animate={{ y: 0, opacity: 1 }}
@@ -622,7 +654,7 @@ function App() {
                                                             <button 
                                                                 onClick={(e) => { e.stopPropagation(); handleTimeout(action.targetUser); }}
                                                                 className="p-2.5 glass rounded-xl hover:bg-red-500/20 text-slate-700 hover:text-red-400 transition-all opacity-0 group-hover:opacity-100 border border-white/5"
-                                                                title="Enforce 10m Timeout"
+                                                                title={`Enforce ${sessionTimeout}m Timeout`}
                                                             >
                                                                 <Gavel className="w-4 h-4" />
                                                             </button>
@@ -706,7 +738,7 @@ function App() {
                                     </div>
                                 </div>
                                 <div className="flex gap-4">
-                                    <button onClick={() => handleTimeout(selectedAction.targetUser)} className="flex-1 bg-red-600 hover:bg-red-500 py-5 rounded-2xl font-black transition-all text-white uppercase tracking-widest text-xs shadow-lg shadow-red-500/20 flex items-center justify-center gap-3"><Gavel className="w-5 h-5" /><span>Enforce 10m Timeout</span></button>
+                                    <button onClick={() => handleTimeout(selectedAction.targetUser)} className="flex-1 bg-red-600 hover:bg-red-500 py-5 rounded-2xl font-black transition-all text-white uppercase tracking-widest text-xs shadow-lg shadow-red-500/20 flex items-center justify-center gap-3"><Gavel className="w-5 h-5" /><span>Enforce {sessionTimeout}m Timeout</span></button>
                                     <button onClick={() => setSelectedAction(null)} className="flex-1 glass hover:bg-white/5 py-5 rounded-2xl font-black transition-all text-slate-400 uppercase tracking-widest text-xs border border-white/5">Dismiss Report</button>
                                 </div>
                             </div>
@@ -748,7 +780,7 @@ function App() {
                                                     user.riskLevel === 'Critical' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
                                                     user.riskLevel === 'High' ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' :
                                                     user.riskLevel === 'Medium' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' :
-                                                    'bg-green-500/20 text-green-400 border-green-500/30'
+                                                    'bg-green-500/20 text-green-400 border-green-500/20'
                                                 }`}>
                                                     {user.riskLevel} RISK
                                                 </span>
@@ -761,7 +793,7 @@ function App() {
                                                 <div className="flex flex-wrap gap-2">{user.violatedRules.length > 0 ? user.violatedRules.map((rule, j) => <span key={j} className="px-3 py-1 bg-red-500/10 rounded-lg text-[9px] text-red-400 font-black border border-red-500/10 uppercase tracking-widest">{rule}</span>) : <span className="px-3 py-1 bg-green-500/10 rounded-lg text-[9px] text-green-400 font-black border border-green-500/10 uppercase tracking-widest">CLEAR</span>}</div>
                                                 <div className="flex gap-2">
                                                     <button onClick={() => handleTimeout(user.userTag)} className="flex-1 bg-red-600 hover:bg-red-500 py-3 rounded-xl font-black transition-all text-white uppercase tracking-widest text-[8px] flex items-center justify-center gap-2 shadow-lg shadow-red-500/10"><Gavel className="w-3 h-3" /><span>Timeout</span></button>
-                                                    <div className="flex-1 space-y-1"><div className="text-[7px] font-black text-slate-600 uppercase tracking-[0.3em]">Protocol</div><div className="text-[10px] font-black text-slate-200 bg-black/40 p-2 rounded-lg border border-white/5 uppercase tracking-tighter truncate italic">{user.suggestedPunishment}</div></div>
+                                                    <div className="flex-1 space-y-1"><div className="text-[7px] font-black text-slate-600 uppercase tracking-[0.3em]">Protocol</div><div className="text-[10px] font-black text-slate-200 bg-black/40 p-2 rounded-lg border border-white/5 uppercase tracking-tighter truncate italic text-center">{user.suggestedPunishment}</div></div>
                                                 </div>
                                             </div>
                                         </motion.div>
@@ -831,7 +863,6 @@ function StatsBarItem({ icon, label, value, color, subtitle }: { icon: React.Rea
                 </div>
                 <span className="text-[8px] font-black text-slate-600 uppercase tracking-[0.2em] mt-1">{subtitle}</span>
             </div>
-            {/* Subtle glow on hover */}
             <div className={`absolute -right-4 -bottom-4 w-24 h-24 blur-3xl opacity-0 group-hover:opacity-20 transition-opacity duration-500 bg-${color}-500`} />
         </div>
     );

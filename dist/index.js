@@ -23,7 +23,6 @@ app.get('/api/stats', (req, res) => {
     const { getAllConfigs } = require('./config');
     const configs = getAllConfigs();
     const isDevKey = process.env.DEV_KEY && key === process.env.DEV_KEY;
-    // Find guild for standard mods, or allow any for dev
     let authorizedGuildId = null;
     if (isDevKey) {
         authorizedGuildId = requestedGuildId || Object.keys(configs)[0];
@@ -34,7 +33,6 @@ app.get('/api/stats', (req, res) => {
             authorizedGuildId = config.guildId;
     }
     const isAuthorized = !!authorizedGuildId;
-    // Record the access attempt
     (0, stats_1.recordAccess)({
         timestamp: new Date().toISOString(),
         ip: Array.isArray(ip) ? ip[0] : ip,
@@ -45,11 +43,13 @@ app.get('/api/stats', (req, res) => {
     }
     const guildStats = (0, stats_1.getGuildStats)(authorizedGuildId);
     const globalStats = (0, stats_1.getGlobalStats)();
+    const guildConfig = (0, config_1.getConfig)(authorizedGuildId);
     res.json({
         ...globalStats,
         ...guildStats,
         guildId: authorizedGuildId,
-        isDev: !!isDevKey
+        isDev: !!isDevKey,
+        defaultTimeout: guildConfig?.defaultTimeout || 10 // FIXED: Pass default timeout to dashboard
     });
 });
 app.get('/api/dev/guilds', (req, res) => {
@@ -143,7 +143,6 @@ app.post('/api/timeout', async (req, res) => {
         const guild = await client_1.client.guilds.fetch(guildId);
         if (!guild)
             return res.status(404).json({ error: 'Guild not found' });
-        // OPTIMIZED: Search cached members first, otherwise fetch by tag
         let member = guild.members.cache.find(m => m.user.tag === userTag || m.user.username === userTag);
         if (!member) {
             const members = await guild.members.fetch();
@@ -191,7 +190,6 @@ app.post('/api/dev/private-scan', async (req, res) => {
             return res.status(403).json({ error: 'Forbidden: Missing Bot Permissions for this channel' });
         }
         const messages = await textChannel.messages.fetch({ limit: 100 });
-        // Ensure members are fetched so roles are available (Check cache first)
         const authorIds = Array.from(new Set(messages.map(m => m.author.id)));
         try {
             await textChannel.guild.members.fetch({ user: authorIds });
@@ -258,7 +256,6 @@ app.post('/api/mass-scan', async (req, res) => {
             return res.status(404).json({ error: 'Channel not found or not text-based' });
         }
         const textChannel = channel;
-        // Security Check: Standard mods can only scan their own guild's channels
         if (!isDevKey && textChannel.guild.id !== authorizedGuildId) {
             return res.status(403).json({ error: 'Forbidden: You can only scan channels in your own server.' });
         }
@@ -296,7 +293,6 @@ client_1.client.once(discord_js_1.Events.ClientReady, async (readyClient) => {
     console.log(`Ready! Logged in as ${readyClient.user.tag}`);
     await (0, register_1.registerCommands)(readyClient.user.id);
     await setBotAvatar();
-    // Initialize all configured server rules on startup
     const configs = require('./config').getAllConfigs();
     for (const config of Object.values(configs)) {
         if (config.rulesChannelId) {
@@ -315,13 +311,11 @@ client_1.client.on(discord_js_1.Events.MessageCreate, async (message) => {
         return;
     const config = (0, config_1.getConfig)(message.guild.id);
     const textChannel = message.channel;
-    // Increment Pulse Counter
     const currentPulse = (0, stats_1.incrementPulse)(message.guild.id);
     const pulseThreshold = config?.auditInterval || 100;
     if (currentPulse >= pulseThreshold && !message.author.bot) {
         console.log(`[Neural Pulse] Threshold reached (${pulseThreshold}). Running auto-audit in #${textChannel.name}`);
         (0, stats_1.resetPulse)(message.guild.id);
-        // Trigger non-blocking mass scan
         (0, moderation_1.performMassScan)(textChannel).then(report => {
             if (report)
                 console.log(`[Neural Pulse] Auto-audit completed for #${textChannel.name}`);
@@ -329,7 +323,6 @@ client_1.client.on(discord_js_1.Events.MessageCreate, async (message) => {
             console.log(`[Neural Pulse] Auto-audit failed for #${textChannel.name}: ${e.message}`);
         });
     }
-    // Trigger Bot Logic
     if (config?.triggerBotId && message.author.id === config.triggerBotId) {
         const targetUser = message.mentions.users.first();
         if (targetUser) {
@@ -337,7 +330,6 @@ client_1.client.on(discord_js_1.Events.MessageCreate, async (message) => {
         }
     }
     else {
-        // PROACTIVE NEURAL PROFILING (1% chance on any message)
         if (Math.random() < 0.01 && !message.author.bot) {
             await (0, moderation_1.handlePotentialInfraction)(textChannel, message.author, message, true);
         }
@@ -360,7 +352,8 @@ client_1.client.on(discord_js_1.Events.InteractionCreate, async (interaction) =>
                         rulesChannelId: rulesChannel.id,
                         modLogsChannelId: logChannel.id,
                         triggerBotId: triggerBot || undefined,
-                        auditInterval: 100 // Default pulse
+                        auditInterval: 100,
+                        defaultTimeout: 10 // FIXED: Initialize default timeout
                     });
                     await (0, rules_1.fetchRules)(guildId, rulesChannel.id);
                     await interaction.reply({
@@ -374,9 +367,16 @@ client_1.client.on(discord_js_1.Events.InteractionCreate, async (interaction) =>
                     return await interaction.reply({ content: 'Admin only.', flags: [discord_js_1.MessageFlags.Ephemeral] });
                 }
                 const interval = options.getInteger('audit-interval');
-                if (guildId && interval) {
-                    (0, config_1.saveConfig)({ guildId, auditInterval: interval });
-                    await interaction.reply({ content: `✅ Neural Audit Pulse interval set to every **${interval}** messages.`, flags: [discord_js_1.MessageFlags.Ephemeral] });
+                const timeout = options.getInteger('default-timeout'); // FIXED: Handle default-timeout option
+                if (guildId) {
+                    if (interval)
+                        (0, config_1.saveConfig)({ guildId, auditInterval: interval });
+                    if (timeout)
+                        (0, config_1.saveConfig)({ guildId, defaultTimeout: timeout });
+                    await interaction.reply({
+                        content: `✅ **Configuration updated!**\n\n${interval ? `• Audit Interval: every **${interval}** messages\n` : ''}${timeout ? `• Default Timeout: **${timeout}** minutes` : ''}`,
+                        flags: [discord_js_1.MessageFlags.Ephemeral]
+                    });
                 }
             }
             if (commandName === 'dashboard-key') {
@@ -461,7 +461,6 @@ client_1.client.on(discord_js_1.Events.InteractionCreate, async (interaction) =>
         console.error('Interaction Error:', error);
     }
 });
-// Basic error handling
 process.on('unhandledRejection', error => {
     console.error('Unhandled promise rejection:', error);
 });

@@ -7,7 +7,8 @@ export interface GuildConfig {
     modLogsChannelId?: string;
     triggerBotId?: string;
     dashboardKey?: string;
-    auditInterval?: number; // ADDED: Threshold for auto-audit pulse
+    auditInterval?: number;
+    defaultTimeout?: number; // ADDED: Default duration for manual/auto timeouts (in minutes)
 }
 
 const CONFIG_PATH = path.join(__dirname, '../guild-configs.json');

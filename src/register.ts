@@ -30,9 +30,12 @@ export async function registerCommands(clientId: string) {
             .setDescription('Update server-specific moderation parameters')
             .addIntegerOption(option => 
                 option.setName('audit-interval')
-                    .setDescription('Automatically run a neural community audit every X messages (default: 100)')
-                    .setMinValue(10)
-                    .setMaxValue(5000)),
+                    .setDescription('Automatically run a neural community audit every X messages (default: 100)'))
+            .addIntegerOption(option => 
+                option.setName('default-timeout')
+                    .setDescription('Default duration for dashboard timeouts in minutes (default: 10)')
+                    .setMinValue(1)
+                    .setMaxValue(40320)), // 1 week max
 
         new SlashCommandBuilder()
             .setName('refresh-rules')
