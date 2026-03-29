@@ -6,5 +6,12 @@ dist/
 *.log
 .DS_Store
 /conductor/
-\n# Developer local files\ndev/\n.dev_key
+
+# Persistent Data
+guild-configs.json
+stats.json
+
+# Developer local files
+dev/
+.dev_key
 dashboard/public/config.json
