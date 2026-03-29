@@ -3,14 +3,31 @@
     "guildId": "1487617516149674107",
     "rulesChannelId": "1486154098695868491",
     "modLogsChannelId": "1486175245663735908",
-    "dashboardKey": "Key"
+    "authorizedUsers": [
+      {
+        "username": "admin",
+        "key": "Key",
+        "role": "ADMIN"
+      },
+      {
+        "username": "Developer",
+        "key": "DEVELOPER-KEY",
+        "role": "ADMIN"
+      }
+    ]
   },
   "1486126827528523958": {
     "guildId": "1486126827528523958",
     "rulesChannelId": "1486175245663735908",
     "modLogsChannelId": "1486175245663735908",
-    "dashboardKey": "NeuralKey_958",
     "auditInterval": 100,
-    "defaultTimeout": 10
+    "defaultTimeout": 10,
+    "authorizedUsers": [
+      {
+        "username": "admin",
+        "key": "NeuralKey_958",
+        "role": "ADMIN"
+      }
+    ]
   }
 }

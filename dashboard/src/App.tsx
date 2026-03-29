@@ -6,7 +6,7 @@ import {
     RefreshCw, Key, ChevronRight, 
     Terminal, LogOut, Search, X, 
     Cpu, Gavel, Timer,
-    Users, UserPlus, Shield, Globe
+    Users, UserPlus, Shield, Globe, Server
 } from 'lucide-react';
 
 interface ModerationAction {
@@ -80,6 +80,13 @@ interface Channel {
     name: string;
 }
 
+interface Guild {
+    id: string;
+    name: string;
+    icon: string | null;
+    memberCount: number;
+}
+
 function App() {
     const [username, setUsername] = useState(sessionStorage.getItem('dashboard_user') || '');
     const [apiKey, setApiKey] = useState(sessionStorage.getItem('dashboard_key') || localStorage.getItem('dashboard_key') || '');
@@ -94,6 +101,7 @@ function App() {
     const [activeTab, setActiveTab] = useState<'terminal' | 'members' | 'users'>('terminal');
 
     const [channels, setChannels] = useState<Channel[]>([]);
+    const [guilds, setGuilds] = useState<Guild[]>([]);
     const [selectedChannel, setSelectedChannel] = useState('');
     const [selectedGuild, setSelectedGuild] = useState('');
     const [scanning, setScanning] = useState(false);
@@ -161,12 +169,23 @@ function App() {
                 params: { guildId: selectedGuild }
             });
             setChannels(response.data);
-            if (response.data.length > 0 && !selectedChannel) {
-                setSelectedChannel(response.data[0].id);
+            if (response.data.length > 0) {
+                // AUTO-INITIALIZE SELECTOR
+                setSelectedChannel(prev => response.data.some((c: any) => c.id === prev) ? prev : response.data[0].id);
             }
         } catch (err) {
             console.error('Failed to fetch channels');
         }
+    };
+
+    const fetchGuilds = async () => {
+        if (!apiKey || !isLoggedIn || !isDevMode) return;
+        try {
+            const response = await axios.get(`${botUrl}/api/dev/guilds`, {
+                headers: { 'x-api-key': apiKey }
+            });
+            setGuilds(response.data);
+        } catch (err) {}
     };
 
     const handleAddUser = async (e: React.FormEvent) => {
@@ -215,11 +234,17 @@ function App() {
         }
     };
 
+    // RESET CHANNEL ON GUILD CHANGE
+    useEffect(() => {
+        setSelectedChannel('');
+    }, [selectedGuild]);
+
     useEffect(() => {
         if (isLoggedIn) {
             fetchData();
             fetchChannels();
             if (activeTab === 'members') fetchMembers();
+            if (isDevMode) fetchGuilds(); // RESTORED GUILD FETCH
             const interval = setInterval(fetchData, 5000);
             return () => clearInterval(interval);
         }
@@ -359,6 +384,23 @@ function App() {
                                 <option value="1" className="bg-slate-900">1m</option><option value="10" className="bg-slate-900">10m</option><option value="60" className="bg-slate-900">1h</option><option value="1440" className="bg-slate-900">24h</option>
                             </select>
                         </div>
+
+                        {/* RESTORED SERVER SWITCHER */}
+                        {isDevMode && guilds.length > 0 && (
+                            <div className="flex items-center gap-3 px-4 py-2 bg-white/5 rounded-2xl border border-white/5">
+                                <Server className="w-4 h-4 text-red-400" />
+                                <select 
+                                    value={selectedGuild}
+                                    onChange={(e) => setSelectedGuild(e.target.value)}
+                                    className="bg-transparent text-xs font-black uppercase text-white focus:outline-none cursor-pointer pr-4"
+                                >
+                                    {guilds.map(g => (
+                                        <option key={g.id} value={g.id} className="bg-slate-900 text-white">{g.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+
                         <button onClick={handleLogout} className="flex items-center gap-3 px-6 py-4 glass hover:bg-red-500/10 border border-white/5 rounded-2xl transition-all text-slate-400 hover:text-red-400 font-black active:scale-95 uppercase tracking-[0.2em] text-[10px]">
                             <LogOut className="w-5 h-5" /><span>Sever Link</span>
                         </button>
@@ -389,6 +431,7 @@ function App() {
                                         </div>
                                         <div className={`flex flex-wrap items-center gap-4 p-4 ${isDevMode ? 'bg-red-500/5 border-red-500/10' : 'bg-blue-500/5 border-blue-500/10'} rounded-[1.5rem] border`}>
                                             <select value={selectedChannel} onChange={(e) => setSelectedChannel(e.target.value)} className="bg-slate-900/80 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none transition-all min-w-[180px] font-bold">
+                                                <option value="" disabled>Select Channel</option>
                                                 {channels.map(c => <option key={c.id} value={c.id}>#{c.name.toUpperCase()}</option>)}
                                             </select>
                                             <button onClick={handleMassScan} disabled={scanning || !selectedChannel} className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-[10px] font-black transition-all active:scale-95 uppercase tracking-widest ${isDevMode ? 'bg-red-600 hover:bg-red-500' : 'bg-blue-600 hover:bg-blue-500'} text-white shadow-lg`}>
