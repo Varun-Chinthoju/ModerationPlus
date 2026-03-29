@@ -2,8 +2,12 @@ import { TextChannel, Message, EmbedBuilder, ActionRowBuilder, ButtonBuilder, Bu
 import { analyzeContext, analyzeMassScan, MassScanResult } from './ai';
 import { client } from './client';
 import { recordAction, recordMassScan } from './stats';
+import { getConfig } from './config';
 
 export async function handlePotentialInfraction(channel: TextChannel, targetUser: User, triggerMessage: Message, isProactive: boolean = false) {
+    const config = getConfig(channel.guild.id);
+    if (!config) return;
+
     // Vulcan Protection & Developer Identity
     const isVulcan = targetUser.tag === 'vulcan_999456' || targetUser.username === 'vulcan_999456';
     const testPhrases = ['testing bot', 'test bot', 'bot test', 'ignore this'];
@@ -37,7 +41,7 @@ export async function handlePotentialInfraction(channel: TextChannel, targetUser
     const transcript = sorted.map(m => `[${m.createdAt.toISOString()}] ${m.author.tag}: ${m.content}`).join('\n');
     
     // Analyze
-    const analysis = await analyzeContext(transcript, targetUser.tag, roles);
+    const analysis = await analyzeContext(channel.guild.id, transcript, targetUser.tag, roles);
     
     if (!analysis) {
         console.error("Analysis failed.");
@@ -53,7 +57,7 @@ export async function handlePotentialInfraction(channel: TextChannel, targetUser
         violation: analysis.violation,
         reason: analysis.shortReason,
         analysis: analysis.detailedAnalysis,
-        socialProfile: analysis.socialProfile, // Pass profile
+        socialProfile: analysis.socialProfile,
         type: analysis.violation ? 'INFRACTION' : 'NORMAL'
     });
     
@@ -62,8 +66,8 @@ export async function handlePotentialInfraction(channel: TextChannel, targetUser
         return;
     }
     
-    // Send to mod logs (Only for actual violations)
-    const modLogsChannelId = process.env.MOD_LOGS_CHANNEL_ID;
+    // Send to mod logs
+    const modLogsChannelId = config.modLogsChannelId;
     if (!modLogsChannelId) return;
     
     const modLogsChannel = await client.channels.fetch(modLogsChannelId);
@@ -123,7 +127,6 @@ export async function performMassScan(channel: TextChannel): Promise<MassScanRes
     if (currentCache) {
         console.log(`[Cache] Using ${currentCache.messages.length} cached messages for #${channel.name}`);
         
-        // Fetch new messages since the last scan
         let newMessages: Message[] = [];
         let afterId = currentCache.lastId;
         
@@ -138,8 +141,6 @@ export async function performMassScan(channel: TextChannel): Promise<MassScanRes
         }
         
         console.log(`[Cache] Found ${newMessages.length} new messages.`);
-        
-        // Combine and keep the latest 500
         allMessages = [...newMessages, ...currentCache.messages].slice(0, 500);
     } else {
         console.log(`[Cache] No cache found for #${channel.name}. Performing full fetch.`);
@@ -157,10 +158,7 @@ export async function performMassScan(channel: TextChannel): Promise<MassScanRes
         }
     }
     
-    // Sort oldest to newest for analysis
     const sorted = [...allMessages].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-    
-    // Fetch roles for all unique authors in the transcript
     const uniqueAuthors = Array.from(new Set(sorted.map(m => m.author.id)));
     const rolesMap: Record<string, string[]> = {};
     
@@ -168,14 +166,11 @@ export async function performMassScan(channel: TextChannel): Promise<MassScanRes
         try {
             const member = await channel.guild.members.fetch(authorId);
             rolesMap[member.user.tag] = member.roles.cache.map(r => r.name).filter(n => n !== '@everyone');
-        } catch (e) {
-            // User might have left
-        }
+        } catch (e) {}
     }
 
     const rolesString = Object.entries(rolesMap).map(([tag, roles]) => `${tag}: [${roles.join(', ')}]`).join('\n');
 
-    // Update cache with the latest state
     if (allMessages.length > 0) {
         const latestMsg = allMessages.reduce((prev, current) => 
             (prev.createdTimestamp > current.createdTimestamp) ? prev : current
@@ -187,11 +182,10 @@ export async function performMassScan(channel: TextChannel): Promise<MassScanRes
         });
     }
     
-    // Format transcript
     const transcript = sorted.map(m => `[${m.createdAt.toISOString()}] ${m.author.tag}: ${m.content}`).join('\n');
     
     // Perform AI Analysis
-    const result = await analyzeMassScan(transcript, sorted.length, rolesString);
+    const result = await analyzeMassScan(channel.guild.id, transcript, sorted.length, rolesString);
     
     if (result) {
         const fullReport = {

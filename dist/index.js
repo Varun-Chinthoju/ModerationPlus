@@ -7,7 +7,6 @@ const discord_js_1 = require("discord.js");
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const client_1 = require("./client");
-const rules_1 = require("./rules");
 const moderation_1 = require("./moderation");
 const register_1 = require("./register");
 const stats_1 = require("./stats");
@@ -169,9 +168,15 @@ app.listen(PORT, () => console.log(`API Dashboard server running on port ${PORT}
 client_1.client.once(discord_js_1.Events.ClientReady, async (readyClient) => {
     console.log(`Ready! Logged in as ${readyClient.user.tag}`);
     await (0, register_1.registerCommands)(readyClient.user.id);
-    // Fetch rules on startup
-    if (process.env.RULES_CHANNEL_ID) {
-        await (0, rules_1.fetchRules)(process.env.RULES_CHANNEL_ID);
+    // Initialize all configured server rules on startup
+    const { getAllConfigs } = require('./config');
+    const configs = getAllConfigs();
+    const { fetchRules } = require('./rules');
+    for (const config of Object.values(configs)) {
+        if (config.rulesChannelId) {
+            console.log(`[Startup] Fetching rules for guild ${config.guildId}...`);
+            await fetchRules(config.guildId, config.rulesChannelId);
+        }
     }
 });
 client_1.client.on(discord_js_1.Events.MessageCreate, async (message) => {
@@ -195,18 +200,56 @@ client_1.client.on(discord_js_1.Events.MessageCreate, async (message) => {
 client_1.client.on(discord_js_1.Events.InteractionCreate, async (interaction) => {
     try {
         if (interaction.isChatInputCommand()) {
+            const { commandName, options, guildId, memberPermissions } = interaction;
+            if (commandName === 'setup') {
+                if (!memberPermissions?.has('Administrator')) {
+                    return await interaction.reply({ content: 'Admin only.', flags: [discord_js_1.MessageFlags.Ephemeral] });
+                }
+                const rulesChannel = options.getChannel('rules-channel');
+                const logChannel = options.getChannel('log-channel');
+                const triggerBot = options.getString('trigger-bot');
+                if (guildId && rulesChannel && logChannel) {
+                    const { saveConfig } = require('./config');
+                    saveConfig({
+                        guildId,
+                        rulesChannelId: rulesChannel.id,
+                        modLogsChannelId: logChannel.id,
+                        triggerBotId: triggerBot || undefined
+                    });
+                    const { fetchRules } = require('./rules');
+                    await fetchRules(guildId, rulesChannel.id);
+                    await interaction.reply({
+                        content: `✅ **Server configuration saved!**\n\n**Next Steps:**\n1. Use \`/dashboard-key\` to set your private access password.\n2. Open the [Neural Dashboard](https://varun-chinthoju.github.io/ModerationPlus/) to monitor and audit your community.`,
+                        flags: [discord_js_1.MessageFlags.Ephemeral]
+                    });
+                }
+            }
+            if (commandName === 'dashboard-key') {
+                if (!memberPermissions?.has('Administrator')) {
+                    return await interaction.reply({ content: 'Admin only.', flags: [discord_js_1.MessageFlags.Ephemeral] });
+                }
+                const key = options.getString('key');
+                if (guildId && key) {
+                    const { saveConfig } = require('./config');
+                    saveConfig({ guildId, dashboardKey: key });
+                    await interaction.reply({ content: '✅ Dashboard key updated!', flags: [discord_js_1.MessageFlags.Ephemeral] });
+                }
+            }
             if (interaction.commandName === 'refresh-rules') {
                 if (!interaction.memberPermissions?.has('Administrator')) {
                     await interaction.reply({ content: 'You do not have permission to use this.', flags: [discord_js_1.MessageFlags.Ephemeral] });
                     return;
                 }
-                if (process.env.RULES_CHANNEL_ID) {
+                const { getConfig } = require('./config');
+                const config = getConfig(interaction.guildId);
+                if (config?.rulesChannelId) {
                     await interaction.deferReply({ flags: [discord_js_1.MessageFlags.Ephemeral] });
-                    await (0, rules_1.fetchRules)(process.env.RULES_CHANNEL_ID);
+                    const { fetchRules } = require('./rules');
+                    await fetchRules(interaction.guildId, config.rulesChannelId);
                     await interaction.editReply('Rules successfully refreshed!');
                 }
                 else {
-                    await interaction.reply({ content: 'RULES_CHANNEL_ID not set.', flags: [discord_js_1.MessageFlags.Ephemeral] });
+                    await interaction.reply({ content: 'Rules channel not configured. Use /setup first.', flags: [discord_js_1.MessageFlags.Ephemeral] });
                 }
             }
         }

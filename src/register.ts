@@ -12,6 +12,41 @@ const commands = [
     name: 'Analyze Context',
     type: ApplicationCommandType.Message,
   },
+  {
+    name: 'setup',
+    description: 'Configure Moderation++ for this server',
+    options: [
+        {
+            name: 'rules-channel',
+            description: 'The channel containing your server rules',
+            type: 7, // Channel
+            required: true
+        },
+        {
+            name: 'log-channel',
+            description: 'Where the AI should post potential violations',
+            type: 7, // Channel
+            required: true
+        },
+        {
+            name: 'trigger-bot',
+            description: 'The ID of the bot that triggers scans (optional)',
+            type: 3 // String
+        }
+    ]
+  },
+  {
+    name: 'dashboard-key',
+    description: 'Set the secret key required to access your web dashboard',
+    options: [
+        {
+            name: 'key',
+            description: 'A secret password for your dashboard',
+            type: 3, // String
+            required: true
+        }
+    ]
+  }
 ];
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN!);

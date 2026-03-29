@@ -4,14 +4,15 @@ exports.analyzeContext = analyzeContext;
 exports.analyzeMassScan = analyzeMassScan;
 const client_1 = require("./client");
 const rules_1 = require("./rules");
-async function analyzeContext(contextMessages, targetUser, targetRoles) {
+async function analyzeContext(guildId, contextMessages, targetUser, targetRoles) {
     try {
+        const rules = (0, rules_1.getCachedRules)(guildId);
         const prompt = `You are an expert Discord server moderator and social psychologist. Your job is to enforce rules and profile community behavior.
 You will be provided with the SERVER RULES and a CONVERSATION TRANSCRIPT.
 Your task is to analyze "${targetUser}" (Roles: [${targetRoles.join(', ')}]).
 
 ### SERVER RULES
-${rules_1.cachedRules}
+${rules}
 
 ### CONVERSATION TRANSCRIPT
 ${contextMessages}
@@ -48,14 +49,15 @@ Return your evaluation as a JSON object with the following exact schema:
         return null;
     }
 }
-async function analyzeMassScan(transcript, messageCount, userRolesMap) {
+async function analyzeMassScan(guildId, transcript, messageCount, userRolesMap) {
     try {
+        const rules = (0, rules_1.getCachedRules)(guildId);
         const prompt = `You are an expert Discord server auditor. Your job is to perform a deep-dive scan of a conversation to identify rule-breakers and summarize the community's health.
 You will be provided with the SERVER RULES, a USER ROLES MAP, and a CONVERSATION TRANSCRIPT containing ${messageCount} messages.
 Analyze EVERY user mentioned in the transcript.
 
 ### SERVER RULES
-${rules_1.cachedRules}
+${rules}
 
 ### USER ROLES MAP
 ${userRolesMap}

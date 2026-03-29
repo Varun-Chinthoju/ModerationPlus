@@ -1,12 +1,12 @@
 import { ai } from './client';
-import { cachedRules } from './rules';
+import { getCachedRules } from './rules';
 
 export interface AnalysisResult {
     violation: boolean;
     timeoutMinutes: number;
     shortReason: string;
     detailedAnalysis: string;
-    socialProfile: string; // Added behavioral profiling
+    socialProfile: string;
 }
 
 export interface UserSummary {
@@ -24,14 +24,15 @@ export interface MassScanResult {
     generalConclusion: string;
 }
 
-export async function analyzeContext(contextMessages: string, targetUser: string, targetRoles: string[]): Promise<AnalysisResult | null> {
+export async function analyzeContext(guildId: string, contextMessages: string, targetUser: string, targetRoles: string[]): Promise<AnalysisResult | null> {
     try {
+        const rules = getCachedRules(guildId);
         const prompt = `You are an expert Discord server moderator and social psychologist. Your job is to enforce rules and profile community behavior.
 You will be provided with the SERVER RULES and a CONVERSATION TRANSCRIPT.
 Your task is to analyze "${targetUser}" (Roles: [${targetRoles.join(', ')}]).
 
 ### SERVER RULES
-${cachedRules}
+${rules}
 
 ### CONVERSATION TRANSCRIPT
 ${contextMessages}
@@ -70,14 +71,15 @@ Return your evaluation as a JSON object with the following exact schema:
     }
 }
 
-export async function analyzeMassScan(transcript: string, messageCount: number, userRolesMap: string): Promise<MassScanResult | null> {
+export async function analyzeMassScan(guildId: string, transcript: string, messageCount: number, userRolesMap: string): Promise<MassScanResult | null> {
     try {
+        const rules = getCachedRules(guildId);
         const prompt = `You are an expert Discord server auditor. Your job is to perform a deep-dive scan of a conversation to identify rule-breakers and summarize the community's health.
 You will be provided with the SERVER RULES, a USER ROLES MAP, and a CONVERSATION TRANSCRIPT containing ${messageCount} messages.
 Analyze EVERY user mentioned in the transcript.
 
 ### SERVER RULES
-${cachedRules}
+${rules}
 
 ### USER ROLES MAP
 ${userRolesMap}
