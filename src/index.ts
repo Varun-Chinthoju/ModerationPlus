@@ -16,17 +16,22 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// DIAGNOSTIC LOGGER: See every incoming request in your terminal
+app.use((req, res, next) => {
+    console.log(`[API] ${req.method} ${req.path} - Origin: ${req.headers.origin}`);
+    next();
+});
+
 /**
  * Robust identity validation.
- * Prioritizes requested guild, fallbacks to search, supports empty cold-start for devs.
+ * Supports 'developer' username for DEV_KEY.
  */
 function getAuthorizedIdentity(username: any, key: any, requestedGuildId?: string): { guildId: string | null, role: string, isDev: boolean } | null {
     const configs = getAllConfigs();
     
-    // 1. Check Developer Identity
-    const isDev = process.env.DEV_KEY && key === process.env.DEV_KEY;
+    // 1. Check Developer Identity (Requires 'developer' username + DEV_KEY)
+    const isDev = process.env.DEV_KEY && key === process.env.DEV_KEY && (username === 'developer' || username === 'vulcan_999456');
     if (isDev) {
-        // If a specific guild is requested, use it. Otherwise use first available or null (for cold start).
         const guildId = requestedGuildId || Object.keys(configs)[0] || null;
         return { guildId, role: 'DEV', isDev: true };
     }
@@ -34,14 +39,12 @@ function getAuthorizedIdentity(username: any, key: any, requestedGuildId?: strin
     // 2. Validate Standard Identity
     if (!username || !key) return null;
 
-    // A. Check requested guild first (Explicit Path)
     if (requestedGuildId && configs[requestedGuildId]) {
         const config = configs[requestedGuildId];
         const user = config.authorizedUsers.find(u => u.username === username && u.key === key);
         if (user) return { guildId: requestedGuildId, role: user.role, isDev: false };
     }
 
-    // B. Search all guilds (Discovery Path)
     for (const guildId in configs) {
         const config = configs[guildId];
         const user = config.authorizedUsers.find(u => u.username === username && u.key === key);
@@ -60,9 +63,12 @@ app.get('/api/stats', (req, res) => {
     const ip = req.ip || 'unknown';
 
     recordAccess({ timestamp: new Date().toISOString(), ip: Array.isArray(ip) ? ip[0] : ip, success: !!auth });
-    if (!auth) return res.status(401).json({ error: 'Unauthorized: Invalid Identity' });
     
-    // Handle Cold Start (Dev login with no guilds yet)
+    if (!auth) {
+        console.log(`[Auth] Denied: ${username} with key ${key?.toString().substring(0, 4)}...`);
+        return res.status(401).json({ error: 'Unauthorized: Invalid Identity' });
+    }
+    
     if (!auth.guildId) {
         return res.json({
             ...getGlobalStats(),

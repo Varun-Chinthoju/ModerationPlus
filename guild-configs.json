@@ -13,11 +13,6 @@
         "username": "Developer",
         "key": "DEVELOPER-KEY",
         "role": "ADMIN"
-      },
-      {
-        "username": "banana",
-        "key": "Key",
-        "role": "MOD"
       }
     ]
   },
@@ -31,11 +26,6 @@
       {
         "username": "admin",
         "key": "password",
-        "role": "ADMIN"
-      },
-      {
-        "username": "banana",
-        "key": "Key",
         "role": "ADMIN"
       }
     ]
