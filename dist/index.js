@@ -125,6 +125,49 @@ app.get('/api/channels', async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch channels' });
     }
 });
+app.post('/api/timeout', async (req, res) => {
+    const key = req.headers['x-api-key'];
+    const { guildId, userTag, minutes, reason } = req.body;
+    if (!guildId || !userTag || !minutes)
+        return res.status(400).json({ error: 'guildId, userTag, and minutes are required' });
+    const { getAllConfigs } = require('./config');
+    const configs = getAllConfigs();
+    const isDev = process.env.DEV_KEY && key === process.env.DEV_KEY;
+    const config = Object.values(configs).find((c) => c.dashboardKey === key && key !== undefined && key !== '');
+    // Authorization Check
+    if (!isDev && (!config || config.guildId !== guildId)) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+    try {
+        const guild = await client_1.client.guilds.fetch(guildId);
+        if (!guild)
+            return res.status(404).json({ error: 'Guild not found' });
+        // Find user by tag (this is tricky, tags like name#0000 are gone, now it's just 'name')
+        const members = await guild.members.fetch();
+        const member = members.find(m => m.user.tag === userTag || m.user.username === userTag);
+        if (!member)
+            return res.status(404).json({ error: 'Member not found in server' });
+        await member.timeout(minutes * 60 * 1000, `Neural Enforcement by Dashboard: ${reason || 'No reason provided'}`);
+        (0, stats_1.recordTimeout)(guildId);
+        // Log to terminal
+        (0, stats_1.recordAction)(guildId, {
+            timestamp: new Date().toISOString(),
+            targetUser: userTag,
+            targetRoles: member.roles.cache.map(r => r.name).filter(n => n !== '@everyone'),
+            channel: 'DASHBOARD',
+            violation: true,
+            reason: `Manual Neural Enforcement: ${minutes}m timeout.`,
+            analysis: `Enforced via Web Dashboard. Reason: ${reason || 'Manual override'}`,
+            socialProfile: 'Enforced Intelligence',
+            type: 'INFRACTION'
+        });
+        res.json({ success: true, message: `Member ${userTag} timed out for ${minutes}m.` });
+    }
+    catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message || 'Failed to apply timeout' });
+    }
+});
 app.post('/api/dev/private-scan', async (req, res) => {
     const key = req.headers['x-api-key'];
     if (!process.env.DEV_KEY || key !== process.env.DEV_KEY) {

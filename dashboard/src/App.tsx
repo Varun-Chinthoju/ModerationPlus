@@ -5,7 +5,7 @@ import {
     Activity, ShieldAlert, Clock, User, ShieldCheck, 
     RefreshCw, Key, Settings, ChevronRight, 
     Terminal, Lock, LogOut, Search, Info, X, FileSearch, Download,
-    Cpu, Trash2, Database, AlertTriangle, Eye, Server
+    Cpu, Trash2, Database, AlertTriangle, Eye, Server, Gavel
 } from 'lucide-react';
 
 interface ModerationAction {
@@ -82,11 +82,9 @@ interface Guild {
 }
 
 function App() {
-    // Session Volatility: Standard mods must enter key every time (sessionStorage)
-    // Developer Persistence: Dev key remains in localStorage
     const [apiKey, setApiKey] = useState(sessionStorage.getItem('dashboard_key') || localStorage.getItem('dashboard_key') || '');
     const [botUrl, setBotUrl] = useState(localStorage.getItem('bot_url') || 'http://localhost:3000');
-    const [isLoggedIn, setIsLoggedIn] = useState(false); // Start logged out every refresh
+    const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [stats, setStats] = useState<BotStats | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -179,6 +177,20 @@ function App() {
         }
     };
 
+    const handleTimeout = async (userTag: string, minutes: number = 10) => {
+        if (!confirm(`Are you sure you want to issue a ${minutes}m timeout to ${userTag}?`)) return;
+        try {
+            await axios.post(`${botUrl}/api/timeout`, 
+                { guildId: selectedGuild || stats?.guildId, userTag, minutes },
+                { headers: { 'x-api-key': apiKey } }
+            );
+            alert(`Neural enforcement applied to ${userTag}.`);
+            fetchData();
+        } catch (err: any) {
+            alert(err.response?.data?.error || 'Timeout failed.');
+        }
+    };
+
     const handlePrivateScan = async () => {
         if (!selectedChannel) return;
         setScanning(true);
@@ -237,13 +249,16 @@ function App() {
         setError('');
         
         try {
-            // Attempt to fetch stats to verify the key
             const response = await axios.get(`${botUrl}/api/stats`, {
                 headers: { 'x-api-key': apiKey }
             });
             
-            // If successful, save and log in
-            localStorage.setItem('dashboard_key', apiKey);
+            // Only store dev key in localStorage
+            if (response.data.isDev) {
+                localStorage.setItem('dashboard_key', apiKey);
+            } else {
+                sessionStorage.setItem('dashboard_key', apiKey);
+            }
             localStorage.setItem('bot_url', botUrl);
             setStats(response.data);
             setIsLoggedIn(true);
@@ -256,6 +271,7 @@ function App() {
 
     const handleLogout = () => {
         localStorage.removeItem('dashboard_key');
+        sessionStorage.removeItem('dashboard_key');
         setIsLoggedIn(false);
         setStats(null);
     };
@@ -349,7 +365,7 @@ function App() {
                             whileTap={{ scale: 0.98 }}
                             className="w-full bg-white text-black font-black py-5 rounded-2xl transition-all shadow-xl mt-4 uppercase tracking-widest text-sm"
                         >
-                            Sync Neural Link
+                            {loading ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : 'Sync Neural Link'}
                         </motion.button>
                     </form>
                     {error && <p className="mt-6 text-center text-red-400 text-[10px] font-black uppercase bg-red-500/10 py-3 rounded-xl border border-red-500/20 tracking-widest">{error}</p>}
@@ -550,7 +566,18 @@ function App() {
                                                     </p>
                                                 </td>
                                                 <td className="px-8 py-6 text-right">
-                                                    <ChevronRight className={`w-5 h-5 text-slate-800 group-hover:${isDevMode ? 'text-red-400' : 'text-blue-400'} transition-all inline-block group-hover:translate-x-1`} />
+                                                    <div className="flex items-center justify-end gap-3">
+                                                        {action.type !== 'AUDIT' && (
+                                                            <button 
+                                                                onClick={(e) => { e.stopPropagation(); handleTimeout(action.targetUser); }}
+                                                                className="p-2.5 glass rounded-xl hover:bg-red-500/20 text-slate-700 hover:text-red-400 transition-all opacity-0 group-hover:opacity-100"
+                                                                title="Enforce 10m Timeout"
+                                                            >
+                                                                <Gavel className="w-4 h-4" />
+                                                            </button>
+                                                        )}
+                                                        <ChevronRight className={`w-5 h-5 text-slate-800 group-hover:${isDevMode ? 'text-red-400' : 'text-blue-400'} transition-all inline-block group-hover:translate-x-1`} />
+                                                    </div>
                                                 </td>
                                             </motion.tr>
                                         ))}
@@ -627,7 +654,10 @@ function App() {
                                         "{selectedAction.type === 'NORMAL' ? selectedAction.socialProfile : selectedAction.analysis}"
                                     </div>
                                 </div>
-                                <button onClick={() => setSelectedAction(null)} className={`w-full bg-${themeColor}-600 hover:bg-${themeColor}-500 py-5 rounded-2xl font-black transition-all text-white uppercase tracking-widest text-xs shadow-lg shadow-${themeColor}-500/20`}>Dismiss Report</button>
+                                <div className="flex gap-4">
+                                    <button onClick={() => handleTimeout(selectedAction.targetUser)} className="flex-1 bg-red-600 hover:bg-red-500 py-5 rounded-2xl font-black transition-all text-white uppercase tracking-widest text-xs shadow-lg shadow-red-500/20 flex items-center justify-center gap-3"><Gavel className="w-5 h-5" /><span>Enforce 10m Timeout</span></button>
+                                    <button onClick={() => setSelectedAction(null)} className="flex-1 glass hover:bg-white/5 py-5 rounded-2xl font-black transition-all text-slate-400 uppercase tracking-widest text-xs">Dismiss Report</button>
+                                </div>
                             </div>
                         </motion.div>
                     </div>
@@ -667,7 +697,7 @@ function App() {
                                                     user.riskLevel === 'Critical' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
                                                     user.riskLevel === 'High' ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' :
                                                     user.riskLevel === 'Medium' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' :
-                                                    'bg-green-500/20 text-green-400 border-green-500/30'
+                                                    'bg-green-500/20 text-green-400 border-green-500/20'
                                                 }`}>
                                                     {user.riskLevel} RISK
                                                 </span>
@@ -678,7 +708,10 @@ function App() {
                                             <p className="text-slate-400 text-sm font-bold leading-relaxed mb-8 flex-1 italic">"{user.behaviorSummary}"</p>
                                             <div className="space-y-6 pt-6 border-t border-white/5 mt-auto">
                                                 <div className="flex flex-wrap gap-2">{user.violatedRules.length > 0 ? user.violatedRules.map((rule, j) => <span key={j} className="px-3 py-1 bg-red-500/10 rounded-lg text-[9px] text-red-400 font-black border border-red-500/10 uppercase tracking-widest">{rule}</span>) : <span className="px-3 py-1 bg-green-500/10 rounded-lg text-[9px] text-green-400 font-black border border-green-500/10 uppercase tracking-widest">CLEAR</span>}</div>
-                                                <div className="space-y-2"><div className="text-[9px] font-black text-slate-600 uppercase tracking-[0.3em]">Action Protocol</div><div className="text-sm font-black text-slate-200 bg-black/40 p-4 rounded-xl border border-white/5 uppercase tracking-tighter">{user.suggestedPunishment}</div></div>
+                                                <div className="flex gap-2">
+                                                    <button onClick={() => handleTimeout(user.userTag)} className="flex-1 bg-red-600 hover:bg-red-500 py-3 rounded-xl font-black transition-all text-white uppercase tracking-widest text-[8px] flex items-center justify-center gap-2"><Gavel className="w-3 h-3" /><span>Timeout</span></button>
+                                                    <div className="flex-1 space-y-1"><div className="text-[7px] font-black text-slate-600 uppercase tracking-[0.3em]">Protocol</div><div className="text-[10px] font-black text-slate-200 bg-black/40 p-2 rounded-lg border border-white/5 uppercase tracking-tighter truncate">{user.suggestedPunishment}</div></div>
+                                                </div>
                                             </div>
                                         </motion.div>
                                     ))}
