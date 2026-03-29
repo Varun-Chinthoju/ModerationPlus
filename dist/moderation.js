@@ -7,8 +7,7 @@ const ai_1 = require("./ai");
 const client_1 = require("./client");
 const stats_1 = require("./stats");
 const config_1 = require("./config");
-async function handlePotentialInfraction(channel, targetUser, triggerMessage, isProactive = false, forceLog = false // Added to support manual mod requests
-) {
+async function handlePotentialInfraction(channel, targetUser, triggerMessage, isProactive = false, forceLog = false) {
     const config = (0, config_1.getConfig)(channel.guild.id);
     if (!config)
         return;
@@ -16,7 +15,6 @@ async function handlePotentialInfraction(channel, targetUser, triggerMessage, is
     const isVulcan = targetUser.tag === 'vulcan_999456' || targetUser.username === 'vulcan_999456';
     const testPhrases = ['testing bot', 'test bot', 'bot test', 'ignore this'];
     const content = triggerMessage.content.toLowerCase();
-    // Skip Vulcan skip-logic if manually forced
     if (isVulcan && !forceLog) {
         if (testPhrases.some(phrase => content.includes(phrase))) {
             console.log(`[Developer] Skipping analysis for Vulcan's test message.`);
@@ -24,20 +22,21 @@ async function handlePotentialInfraction(channel, targetUser, triggerMessage, is
         }
     }
     console.log(`${forceLog ? '[Manual]' : (isProactive ? '[Proactive]' : '[Triggered]')} Analyzing ${targetUser.tag} in #${channel.name}`);
-    // Fetch member to get roles
+    // Fetch member safely (Check cache first to avoid rate limits)
     let roles = [];
     try {
-        const member = await channel.guild.members.fetch(targetUser.id);
+        let member = channel.guild.members.cache.get(targetUser.id);
+        if (!member) {
+            member = await channel.guild.members.fetch(targetUser.id);
+        }
         roles = member.roles.cache.map(r => r.name).filter(n => n !== '@everyone');
     }
     catch (e) {
-        console.log(`Could not fetch roles for ${targetUser.tag}`);
+        console.log(`[Access] Could not fetch roles for ${targetUser.tag}, using defaults.`);
     }
     // Gather context
     const messages = await channel.messages.fetch({ limit: 50, before: triggerMessage.id });
-    // Sort oldest to newest
     const sorted = Array.from(messages.values()).sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-    // Format transcript
     const transcript = sorted.map(m => `[${m.createdAt.toISOString()}] ${m.author.tag}: ${m.content}`).join('\n');
     // Analyze
     const analysis = await (0, ai_1.analyzeContext)(channel.guild.id, transcript, targetUser.tag, roles);
@@ -45,7 +44,6 @@ async function handlePotentialInfraction(channel, targetUser, triggerMessage, is
         console.error("Analysis failed.");
         return;
     }
-    // Record the action for the dashboard (ALWAYS log for history)
     (0, stats_1.recordAction)(channel.guild.id, {
         timestamp: new Date().toISOString(),
         targetUser: targetUser.tag,
@@ -57,18 +55,12 @@ async function handlePotentialInfraction(channel, targetUser, triggerMessage, is
         socialProfile: analysis.socialProfile,
         type: analysis.violation ? 'INFRACTION' : 'NORMAL'
     });
-    // Logic for posting to Discord mod logs
     const shouldLogToDiscord = analysis.violation || forceLog;
-    if (!shouldLogToDiscord) {
-        console.log(`[Neural Profiling] Logged normal interaction for ${targetUser.tag} internally.`);
+    if (!shouldLogToDiscord)
         return;
-    }
-    // Send to mod logs
     const modLogsChannelId = config.modLogsChannelId;
-    if (!modLogsChannelId) {
-        console.error(`[Moderation] No mod-logs channel configured for ${channel.guild.id}`);
+    if (!modLogsChannelId)
         return;
-    }
     try {
         const modLogsChannel = await client_1.client.channels.fetch(modLogsChannelId);
         if (!modLogsChannel || !modLogsChannel.isTextBased())
@@ -81,20 +73,10 @@ async function handlePotentialInfraction(channel, targetUser, triggerMessage, is
             .setTimestamp();
         if (analysis.violation) {
             embed.addFields({ name: 'Suggested Timeout', value: `${analysis.timeoutMinutes} minutes`, inline: true });
-            const approveBtn = new discord_js_1.ButtonBuilder()
-                .setCustomId(`approve_timeout_${targetUser.id}_${analysis.timeoutMinutes}`)
-                .setLabel(`Approve Timeout (${analysis.timeoutMinutes}m)`)
-                .setStyle(discord_js_1.ButtonStyle.Danger);
-            const dismissBtn = new discord_js_1.ButtonBuilder()
-                .setCustomId(`dismiss_warning_${targetUser.id}`)
-                .setLabel('Dismiss')
-                .setStyle(discord_js_1.ButtonStyle.Secondary);
-            const row = new discord_js_1.ActionRowBuilder()
-                .addComponents(approveBtn, dismissBtn);
+            const row = new discord_js_1.ActionRowBuilder().addComponents(new discord_js_1.ButtonBuilder().setCustomId(`approve_timeout_${targetUser.id}_${analysis.timeoutMinutes}`).setLabel(`Approve Timeout (${analysis.timeoutMinutes}m)`).setStyle(discord_js_1.ButtonStyle.Danger), new discord_js_1.ButtonBuilder().setCustomId(`dismiss_warning_${targetUser.id}`).setLabel('Dismiss').setStyle(discord_js_1.ButtonStyle.Secondary));
             await textChannel.send({ embeds: [embed], components: [row] });
         }
         else {
-            // Safety verification log (no action buttons needed)
             await textChannel.send({ embeds: [embed] });
         }
     }
@@ -104,10 +86,8 @@ async function handlePotentialInfraction(channel, targetUser, triggerMessage, is
 }
 const massScanCache = new Map();
 async function performMassScan(channel) {
-    // Permission Check
     const permissions = channel.permissionsFor(client_1.client.user);
     if (!permissions || !permissions.has(discord_js_1.PermissionsBitField.Flags.ViewChannel) || !permissions.has(discord_js_1.PermissionsBitField.Flags.ReadMessageHistory)) {
-        console.error(`[Access] Missing permissions to scan #${channel.name}`);
         throw new Error('Missing Access: Bot cannot see that channel.');
     }
     console.log(`Starting mass scan for channel: #${channel.name}`);
@@ -115,7 +95,6 @@ async function performMassScan(channel) {
     let allMessages = [];
     try {
         if (currentCache) {
-            console.log(`[Cache] Using ${currentCache.messages.length} cached messages for #${channel.name}`);
             let newMessages = [];
             let afterId = currentCache.lastId;
             while (true) {
@@ -127,11 +106,9 @@ async function performMassScan(channel) {
                 if (newMessages.length >= 500)
                     break;
             }
-            console.log(`[Cache] Found ${newMessages.length} new messages.`);
             allMessages = [...newMessages, ...currentCache.messages].slice(0, 500);
         }
         else {
-            console.log(`[Cache] No cache found for #${channel.name}. Performing full fetch.`);
             let lastId;
             for (let i = 0; i < 5; i++) {
                 const options = { limit: 100 };
@@ -153,23 +130,26 @@ async function performMassScan(channel) {
     const sorted = [...allMessages].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
     const uniqueAuthors = Array.from(new Set(sorted.map(m => m.author.id)));
     const rolesMap = {};
-    for (const authorId of uniqueAuthors) {
-        try {
-            const member = await channel.guild.members.fetch(authorId);
+    // OPTIMIZED: Batch fetch users to avoid Opcode 8 rate limits
+    try {
+        const members = await channel.guild.members.fetch({ user: uniqueAuthors });
+        members.forEach(member => {
             rolesMap[member.user.tag] = member.roles.cache.map(r => r.name).filter(n => n !== '@everyone');
-        }
-        catch (e) { }
+        });
+    }
+    catch (e) {
+        console.log("[Mass Scan] Failed batch member fetch, using message metadata.");
+        sorted.forEach(m => {
+            if (!rolesMap[m.author.tag])
+                rolesMap[m.author.tag] = [];
+        });
     }
     const rolesString = Object.entries(rolesMap).map(([tag, roles]) => `${tag}: [${roles.join(', ')}]`).join('\n');
     if (allMessages.length > 0) {
         const latestMsg = allMessages.reduce((prev, current) => (prev.createdTimestamp > current.createdTimestamp) ? prev : current);
-        massScanCache.set(channel.id, {
-            messages: allMessages,
-            lastId: latestMsg.id
-        });
+        massScanCache.set(channel.id, { messages: allMessages, lastId: latestMsg.id });
     }
     const transcript = sorted.map(m => `[${m.createdAt.toISOString()}] ${m.author.tag}: ${m.content}`).join('\n');
-    // Perform AI Analysis
     const result = await (0, ai_1.analyzeMassScan)(channel.guild.id, transcript, sorted.length, rolesString);
     if (result) {
         const fullReport = {

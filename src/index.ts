@@ -157,8 +157,13 @@ app.post('/api/timeout', async (req, res) => {
         const guild = await client.guilds.fetch(guildId);
         if (!guild) return res.status(404).json({ error: 'Guild not found' });
 
-        const members = await guild.members.fetch();
-        const member = members.find(m => m.user.tag === userTag || m.user.username === userTag);
+        // OPTIMIZED: Search cached members first, otherwise fetch by tag
+        let member = guild.members.cache.find(m => m.user.tag === userTag || m.user.username === userTag);
+        
+        if (!member) {
+            const members = await guild.members.fetch();
+            member = members.find(m => m.user.tag === userTag || m.user.username === userTag);
+        }
 
         if (!member) return res.status(404).json({ error: 'Member not found in server' });
 
@@ -209,10 +214,12 @@ app.post('/api/dev/private-scan', async (req, res) => {
 
         const messages = await textChannel.messages.fetch({ limit: 100 });
         
+        // Ensure members are fetched so roles are available (Check cache first)
+        const authorIds = Array.from(new Set(messages.map(m => m.author.id)));
         try {
-            await textChannel.guild.members.fetch();
+            await textChannel.guild.members.fetch({ user: authorIds });
         } catch (e) {
-            console.log("[API] Failed to bulk fetch members for private scan, falling back to cache.");
+            console.log("[API] Failed to batch fetch members for private scan.");
         }
 
         const transcript = Array.from(messages.values())
