@@ -11,32 +11,27 @@ import {
     incrementPulse, resetPulse, getCommunityVibe, recordDashboardAction 
 } from './stats';
 import { getConfig, getAllConfigs, saveConfig, AuthorizedUser } from './config';
+import { neuralLog, clearBotLog } from './logger'; // NEW: Identity-aware logging
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// DIAGNOSTIC LOGGER: See every incoming request in your terminal
+// API Request Interceptor
 app.use((req, res, next) => {
-    console.log(`[API] ${req.method} ${req.path} - Origin: ${req.headers.origin}`);
+    neuralLog('API', `${req.method} ${req.path} - Origin: ${req.headers.origin}`);
     next();
 });
 
-/**
- * Robust identity validation.
- * Supports 'developer' username for DEV_KEY.
- */
 function getAuthorizedIdentity(username: any, key: any, requestedGuildId?: string): { guildId: string | null, role: string, isDev: boolean } | null {
     const configs = getAllConfigs();
     
-    // 1. Check Developer Identity (Requires 'developer' username + DEV_KEY)
     const isDev = process.env.DEV_KEY && key === process.env.DEV_KEY && (username === 'developer' || username === 'vulcan_999456');
     if (isDev) {
         const guildId = requestedGuildId || Object.keys(configs)[0] || null;
         return { guildId, role: 'DEV', isDev: true };
     }
 
-    // 2. Validate Standard Identity
     if (!username || !key) return null;
 
     if (requestedGuildId && configs[requestedGuildId]) {
@@ -65,10 +60,12 @@ app.get('/api/stats', (req, res) => {
     recordAccess({ timestamp: new Date().toISOString(), ip: Array.isArray(ip) ? ip[0] : ip, success: !!auth });
     
     if (!auth) {
-        console.log(`[Auth] Denied: ${username} with key ${key?.toString().substring(0, 4)}...`);
+        neuralLog('Auth', `Access Denied: user="${username}" key="${key?.toString().substring(0, 4)}..."`);
         return res.status(401).json({ error: 'Unauthorized: Invalid Identity' });
     }
     
+    neuralLog('Auth', `Access Granted: user="${username}" guild="${auth.guildId}" role="${auth.role}"`);
+
     if (!auth.guildId) {
         return res.json({
             ...getGlobalStats(),
@@ -124,6 +121,7 @@ app.post('/api/config/refresh-rules', async (req, res) => {
 
     try {
         await fetchRules(auth.guildId, config.rulesChannelId);
+        neuralLog('Config', `Rules manually refreshed for ${auth.guildId} by ${username}`);
         recordDashboardAction(auth.guildId, { timestamp: new Date().toISOString(), user: username as string, action: 'Refreshed Sovereign Rules' });
         res.json({ success: true });
     } catch (e) { res.status(500).json({ error: 'Sync failed' }); }
@@ -140,6 +138,7 @@ app.post('/api/users/add', async (req, res) => {
     if (!config) return res.status(404).json({ error: 'Server config not found' });
     config.authorizedUsers.push({ username: newUsername, key: newKey, role: newRole || 'MOD' });
     saveConfig(config);
+    neuralLog('Identity', `New User Authorized: ${newUsername} (${newRole}) in ${targetGuildId}`);
     recordDashboardAction(targetGuildId, { timestamp: new Date().toISOString(), user: username as string, action: 'Authorized New Identity', target: newUsername });
     res.json({ success: true });
 });
@@ -181,6 +180,7 @@ app.post('/api/timeout', async (req, res) => {
         if (member.roles.highest.position >= botMember.roles.highest.position) return res.status(403).json({ error: 'Hierarchy Error' });
         await member.timeout(minutes * 60 * 1000, `Neural Enforcement by ${username}: ${reason || 'Manual'}`);
         recordTimeout(auth.guildId);
+        neuralLog('Moderate', `Timeout Enforced: ${userTag} for ${minutes}m by ${username}`);
         recordDashboardAction(auth.guildId, { timestamp: new Date().toISOString(), user: username as string, action: `Enforced ${minutes}m Timeout`, target: userTag });
         res.json({ success: true });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -196,6 +196,7 @@ app.post('/api/mass-scan', async (req, res) => {
         if (!channel || !channel.isTextBased()) return res.status(404).json({ error: 'Not found' });
         const textChannel = channel as TextChannel;
         if (!auth.isDev && textChannel.guild.id !== auth.guildId) return res.status(403).json({ error: 'Forbidden' });
+        neuralLog('Audit', `Mass Scan requested for #${textChannel.name} by ${username}`);
         const report = await performMassScan(textChannel);
         recordDashboardAction(auth.guildId, { timestamp: new Date().toISOString(), user: username as string, action: 'Initiated Community Audit', target: `#${textChannel.name}` });
         res.json(report);
@@ -228,10 +229,11 @@ async function setBotAvatar() {
 }
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`API Dashboard server running on port ${PORT}`));
+app.listen(PORT, () => neuralLog('System', `Dashboard API running on port ${PORT}`));
 
 client.once(Events.ClientReady, async (readyClient) => {
-  console.log(`Ready! Logged in as ${readyClient.user.tag}`);
+  clearBotLog(); // Fresh start
+  neuralLog('System', `Ready! Logged in as ${readyClient.user.tag}`);
   await registerCommands(readyClient.user.id);
   await setBotAvatar();
   const configs = getAllConfigs();
@@ -242,7 +244,8 @@ client.once(Events.ClientReady, async (readyClient) => {
               const guild = await client.guilds.fetch(guildId).catch(() => null);
               if (!guild) continue;
               await fetchRules(guildId, config.rulesChannelId);
-          } catch (e) { console.log(`[Startup] Rules Access Failed for ${guildId}.`); }
+              neuralLog('Config', `Pre-cached rules for guild: ${guildId}`);
+          } catch (e) { neuralLog('Error', `Rules Access Failed for ${guildId}.`); }
       }
   }
 });
