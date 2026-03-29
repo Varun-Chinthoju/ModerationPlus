@@ -1,4 +1,4 @@
-import { TextChannel, Message, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, User, Collection } from 'discord.js';
+import { TextChannel, Message, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, User, Collection, PermissionsBitField } from 'discord.js';
 import { analyzeContext, analyzeMassScan, MassScanResult } from './ai';
 import { client } from './client';
 import { recordAction, recordMassScan } from './stats';
@@ -58,7 +58,7 @@ export async function handlePotentialInfraction(channel: TextChannel, targetUser
         reason: analysis.shortReason,
         analysis: analysis.detailedAnalysis,
         socialProfile: analysis.socialProfile,
-        type: analysis.violation ? 'INFRACTION' : 'NORMAL'
+        type: analysis.violation ? 'INFRACTION' : 'NORMAL' // FIXED: Added missing type
     });
     
     if (!analysis.violation) {
@@ -114,9 +114,9 @@ const massScanCache = new Map<string, ChannelCache>();
 export async function performMassScan(channel: TextChannel): Promise<MassScanResult | null> {
     // Permission Check
     const permissions = channel.permissionsFor(client.user!);
-    if (!permissions || !permissions.has('ViewChannel') || !permissions.has('ReadMessageHistory')) {
+    if (!permissions || !permissions.has(PermissionsBitField.Flags.ViewChannel) || !permissions.has(PermissionsBitField.Flags.ReadMessageHistory)) {
         console.error(`[Access] Missing permissions to scan #${channel.name}`);
-        return null;
+        throw new Error('Missing Access: Bot cannot see that channel.');
     }
 
     console.log(`Starting mass scan for channel: #${channel.name}`);
@@ -124,38 +124,43 @@ export async function performMassScan(channel: TextChannel): Promise<MassScanRes
     let currentCache = massScanCache.get(channel.id);
     let allMessages: Message[] = [];
     
-    if (currentCache) {
-        console.log(`[Cache] Using ${currentCache.messages.length} cached messages for #${channel.name}`);
-        
-        let newMessages: Message[] = [];
-        let afterId = currentCache.lastId;
-        
-        while (true) {
-            const fetched = await channel.messages.fetch({ limit: 100, after: afterId }) as unknown as Collection<string, Message>;
-            if (fetched.size === 0) break;
+    try {
+        if (currentCache) {
+            console.log(`[Cache] Using ${currentCache.messages.length} cached messages for #${channel.name}`);
             
-            newMessages = newMessages.concat(Array.from(fetched.values()));
-            afterId = fetched.first()?.id as string;
+            let newMessages: Message[] = [];
+            let afterId = currentCache.lastId;
             
-            if (newMessages.length >= 500) break; // Safety break
+            while (true) {
+                const fetched = await channel.messages.fetch({ limit: 100, after: afterId }) as unknown as Collection<string, Message>;
+                if (fetched.size === 0) break;
+                
+                newMessages = newMessages.concat(Array.from(fetched.values()));
+                afterId = fetched.first()?.id as string;
+                
+                if (newMessages.length >= 500) break; 
+            }
+            
+            console.log(`[Cache] Found ${newMessages.length} new messages.`);
+            allMessages = [...newMessages, ...currentCache.messages].slice(0, 500);
+        } else {
+            console.log(`[Cache] No cache found for #${channel.name}. Performing full fetch.`);
+            
+            let lastId: string | undefined;
+            for (let i = 0; i < 5; i++) {
+                const options: any = { limit: 100 };
+                if (lastId) options.before = lastId;
+                
+                const fetched = await channel.messages.fetch(options) as unknown as Collection<string, Message>;
+                if (fetched.size === 0) break;
+                
+                allMessages = allMessages.concat(Array.from(fetched.values()));
+                lastId = fetched.last()?.id;
+            }
         }
-        
-        console.log(`[Cache] Found ${newMessages.length} new messages.`);
-        allMessages = [...newMessages, ...currentCache.messages].slice(0, 500);
-    } else {
-        console.log(`[Cache] No cache found for #${channel.name}. Performing full fetch.`);
-        
-        let lastId: string | undefined;
-        for (let i = 0; i < 5; i++) {
-            const options: any = { limit: 100 };
-            if (lastId) options.before = lastId;
-            
-            const fetched = await channel.messages.fetch(options) as unknown as Collection<string, Message>;
-            if (fetched.size === 0) break;
-            
-            allMessages = allMessages.concat(Array.from(fetched.values()));
-            lastId = fetched.last()?.id;
-        }
+    } catch (e: any) {
+        if (e.code === 50001) throw new Error('Missing Access: Bot cannot read history in that channel.');
+        throw e;
     }
     
     const sorted = [...allMessages].sort((a, b) => a.createdTimestamp - b.createdTimestamp);

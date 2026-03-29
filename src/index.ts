@@ -6,6 +6,7 @@ import { fetchRules } from './rules';
 import { handlePotentialInfraction, performMassScan } from './moderation';
 import { registerCommands } from './register';
 import { recordTimeout, recordAccess, clearLogs, clearAccessLogs, getGuildStats, getGlobalStats } from './stats';
+import { getConfig } from './config';
 
 // Initialize Express for Dashboard API
 const app = express();
@@ -22,11 +23,12 @@ app.get('/api/stats', (req, res) => {
     
     const isDevKey = process.env.DEV_KEY && key === process.env.DEV_KEY;
     
+    // Find guild for standard mods, or allow any for dev
     let authorizedGuildId: string | null = null;
     if (isDevKey) {
         authorizedGuildId = requestedGuildId || Object.keys(configs)[0];
     } else {
-        const config = Object.values(configs).find((c: any) => c.dashboardKey === key);
+        const config = Object.values(configs).find((c: any) => c.dashboardKey === key && key !== undefined && key !== '');
         if (config) authorizedGuildId = (config as any).guildId;
     }
 
@@ -40,7 +42,7 @@ app.get('/api/stats', (req, res) => {
     });
 
     if (!isAuthorized) {
-        return res.status(401).json({ error: 'Unauthorized' });
+        return res.status(401).json({ error: 'Unauthorized: Invalid or Empty Key' });
     }
     
     const guildStats = getGuildStats(authorizedGuildId!);
@@ -104,7 +106,7 @@ app.get('/api/channels', async (req, res) => {
     if (isDev) {
         targetGuildId = requestedGuildId || Object.keys(configs)[0];
     } else {
-        const config = Object.values(configs).find((c: any) => c.dashboardKey === key);
+        const config = Object.values(configs).find((c: any) => c.dashboardKey === key && key !== undefined && key !== '');
         if (config) targetGuildId = (config as any).guildId;
     }
 
@@ -112,6 +114,8 @@ app.get('/api/channels', async (req, res) => {
 
     try {
         const guild = await client.guilds.fetch(targetGuildId);
+        if (!guild) return res.status(404).json({ error: 'Server not found' });
+
         const fetchedChannels = await guild.channels.fetch();
 
         const sensitiveKeywords = ['mod', 'admin', 'staff', 'log', 'private', 'dev'];
@@ -126,7 +130,8 @@ app.get('/api/channels', async (req, res) => {
             .map(c => ({ id: c!.id, name: (c as any).name }));
 
         res.json(channels);
-    } catch (error) {
+    } catch (error: any) {
+        if (error.code === 10004) return res.status(404).json({ error: 'Unknown Guild: Bot is no longer in this server.' });
         console.error('[API] Failed to fetch channels:', error);
         res.status(500).json({ error: 'Failed to fetch channels' });
     }
@@ -193,14 +198,32 @@ app.post('/api/dev/private-scan', async (req, res) => {
 
 app.post('/api/mass-scan', async (req, res) => {
     const key = req.headers['x-api-key'];
-    const isAuthorized = key === process.env.DASHBOARD_KEY || (process.env.DEV_KEY && key === process.env.DEV_KEY);
+    const { channelId } = req.body;
     
-    if (!isAuthorized) {
-        return res.status(401).json({ error: 'Unauthorized' });
+    if (!channelId) return res.status(400).json({ error: 'channelId is required' });
+
+    const { getAllConfigs } = require('./config');
+    const configs = getAllConfigs();
+    
+    const isDevKey = process.env.DEV_KEY && key === process.env.DEV_KEY;
+    
+    // Find authorized guild
+    let authorizedGuildId: string | null = null;
+    if (isDevKey) {
+        try {
+            const tempChannel = await client.channels.fetch(channelId);
+            if (tempChannel && 'guild' in tempChannel) {
+                authorizedGuildId = tempChannel.guild.id;
+            }
+        } catch (e) {}
+    } else {
+        const config = Object.values(configs).find((c: any) => c.dashboardKey === key && key !== undefined && key !== '');
+        if (config) authorizedGuildId = (config as any).guildId;
     }
 
-    const { channelId } = req.body;
-    if (!channelId) return res.status(400).json({ error: 'channelId is required' });
+    if (!authorizedGuildId) {
+        return res.status(401).json({ error: 'Unauthorized: Invalid Key' });
+    }
 
     try {
         const channel = await client.channels.fetch(channelId);
@@ -208,14 +231,25 @@ app.post('/api/mass-scan', async (req, res) => {
             return res.status(404).json({ error: 'Channel not found or not text-based' });
         }
 
-        const report = await performMassScan(channel as TextChannel);
+        const textChannel = channel as TextChannel;
+
+        // Security Check: Standard mods can only scan their own guild's channels
+        if (!isDevKey && textChannel.guild.id !== authorizedGuildId) {
+            return res.status(403).json({ error: 'Forbidden: You can only scan channels in your own server.' });
+        }
+
+        const report = await performMassScan(textChannel);
         
         if (!report) return res.status(500).json({ error: 'Scan failed' });
         
         res.json(report);
-    } catch (error) {
+    } catch (error: any) {
+        const message = error.message || 'Mass scan failed';
+        if (message.includes('Missing Access')) {
+            return res.status(403).json({ error: message });
+        }
         console.error(error);
-        res.status(500).json({ error: 'An error occurred during mass scan' });
+        res.status(500).json({ error: message });
     }
 });
 
@@ -248,7 +282,11 @@ client.once(Events.ClientReady, async (readyClient) => {
   for (const config of Object.values(configs)) {
       if (config.rulesChannelId) {
           console.log(`[Startup] Fetching rules for guild ${config.guildId}...`);
-          await fetchRules(config.guildId, config.rulesChannelId);
+          try {
+              await fetchRules(config.guildId, config.rulesChannelId);
+          } catch (e) {
+              console.log(`[Startup] Could not fetch rules for ${config.guildId} (Missing Access)`);
+          }
       }
   }
 });
@@ -258,7 +296,8 @@ client.on(Events.MessageCreate, async (message) => {
     if (!message.guild || !message.channel.isTextBased()) return;
     
     // Check if the message is from the trigger bot (e.g., Arcane)
-    if (process.env.TRIGGER_BOT_ID && message.author.id === process.env.TRIGGER_BOT_ID) {
+    const config = getConfig(message.guild.id);
+    if (config?.triggerBotId && message.author.id === config.triggerBotId) {
         const targetUser = message.mentions.users.first();
         if (targetUser) {
             await handlePotentialInfraction(message.channel as TextChannel, targetUser, message);

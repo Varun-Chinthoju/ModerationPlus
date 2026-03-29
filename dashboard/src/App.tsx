@@ -82,9 +82,11 @@ interface Guild {
 }
 
 function App() {
-    const [apiKey, setApiKey] = useState(localStorage.getItem('dashboard_key') || '');
+    // Session Volatility: Standard mods must enter key every time (sessionStorage)
+    // Developer Persistence: Dev key remains in localStorage
+    const [apiKey, setApiKey] = useState(sessionStorage.getItem('dashboard_key') || localStorage.getItem('dashboard_key') || '');
     const [botUrl, setBotUrl] = useState(localStorage.getItem('bot_url') || 'http://localhost:3000');
-    const [isLoggedIn, setIsLoggedIn] = useState(!!localStorage.getItem('dashboard_key'));
+    const [isLoggedIn, setIsLoggedIn] = useState(false); // Start logged out every refresh
     const [stats, setStats] = useState<BotStats | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
