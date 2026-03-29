@@ -314,61 +314,213 @@ function App() {
 
     if (!isLoggedIn) {
         return (
-            <div className="min-h-screen w-full bg-[#020617] flex items-center justify-center p-4 selection:bg-red-500/30">
+            <div className="min-h-screen w-full flex items-center justify-center p-4 overflow-hidden" style={{ background: 'radial-gradient(ellipse at 60% 20%, #0a0f2e 0%, #020617 60%, #000000 100%)' }}>
+                {/* Animated background orbs */}
                 <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                    <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-blue-600/10 blur-[120px] rounded-full animate-pulse"></div>
-                    <div className="absolute bottom-1/4 right-1/4 w-[500px] h-[500px] bg-red-600/10 blur-[120px] rounded-full animate-pulse delay-700"></div>
+                    <motion.div
+                        animate={{ scale: [1, 1.15, 1], opacity: [0.3, 0.5, 0.3] }}
+                        transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
+                        className="absolute -top-32 -left-32 w-[700px] h-[700px] rounded-full"
+                        style={{ background: 'radial-gradient(circle, rgba(59,130,246,0.15) 0%, transparent 70%)' }}
+                    />
+                    <motion.div
+                        animate={{ scale: [1, 1.2, 1], opacity: [0.2, 0.4, 0.2] }}
+                        transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut', delay: 3 }}
+                        className="absolute -bottom-40 -right-40 w-[800px] h-[800px] rounded-full"
+                        style={{ background: 'radial-gradient(circle, rgba(139,92,246,0.12) 0%, transparent 70%)' }}
+                    />
+                    <motion.div
+                        animate={{ scale: [1, 1.1, 1], opacity: [0.15, 0.3, 0.15] }}
+                        transition={{ duration: 12, repeat: Infinity, ease: 'easeInOut', delay: 6 }}
+                        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full"
+                        style={{ background: 'radial-gradient(circle, rgba(14,165,233,0.08) 0%, transparent 70%)' }}
+                    />
+                    {/* Grid overlay */}
+                    <div className="absolute inset-0" style={{
+                        backgroundImage: 'linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px)',
+                        backgroundSize: '48px 48px'
+                    }} />
                 </div>
 
-                <motion.div 
-                    initial={{ scale: 0.9, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    className="glass w-full max-w-md p-10 rounded-[2.5rem] border-white/10 shadow-2xl relative z-10 backdrop-blur-3xl"
+                <motion.div
+                    initial={{ y: 30, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+                    className="relative z-10 w-full max-w-[420px]"
                 >
-                    <div className="flex flex-col items-center mb-8">
-                        <div className="p-5 bg-gradient-to-br from-slate-800 to-slate-900 rounded-3xl shadow-xl border border-white/10 mb-6">
-                            <Lock className="w-10 h-10 text-white" />
+                    {/* Outer glow ring */}
+                    <div className="absolute -inset-px rounded-[2.5rem] opacity-60" style={{
+                        background: 'linear-gradient(135deg, rgba(59,130,246,0.3) 0%, rgba(139,92,246,0.2) 50%, rgba(59,130,246,0.1) 100%)',
+                        filter: 'blur(1px)'
+                    }} />
+
+                    {/* Glass card */}
+                    <div className="relative rounded-[2.5rem] p-10 border border-white/10 overflow-hidden" style={{
+                        background: 'rgba(7, 12, 33, 0.75)',
+                        backdropFilter: 'blur(40px)',
+                        WebkitBackdropFilter: 'blur(40px)',
+                        boxShadow: '0 0 0 1px rgba(255,255,255,0.06) inset, 0 40px 120px -30px rgba(0,0,0,0.8), 0 0 80px -20px rgba(59,130,246,0.15)'
+                    }}>
+                        {/* Top shine */}
+                        <div className="absolute top-0 left-0 right-0 h-px" style={{
+                            background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent)'
+                        }} />
+
+                        {/* Header */}
+                        <div className="flex flex-col items-center mb-10">
+                            {/* Icon */}
+                            <motion.div
+                                initial={{ scale: 0, rotate: -10 }}
+                                animate={{ scale: 1, rotate: 0 }}
+                                transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
+                                className="relative mb-7"
+                            >
+                                <div className="absolute inset-0 rounded-[1.25rem] blur-lg opacity-60" style={{ background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)' }} />
+                                <div className="relative p-4 rounded-[1.25rem] border border-white/15" style={{
+                                    background: 'linear-gradient(135deg, rgba(59,130,246,0.25) 0%, rgba(139,92,246,0.2) 100%)',
+                                    boxShadow: '0 8px 32px rgba(59,130,246,0.2)'
+                                }}>
+                                    <Lock className="w-9 h-9 text-white" strokeWidth={1.5} />
+                                </div>
+                            </motion.div>
+
+                            <motion.h1
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: 0.3 }}
+                                className="text-[2.25rem] font-black tracking-tight italic mb-1.5"
+                                style={{ background: 'linear-gradient(135deg, #ffffff 30%, #94a3b8 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}
+                            >
+                                Moderation++
+                            </motion.h1>
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                transition={{ delay: 0.4 }}
+                                className="flex items-center gap-2"
+                            >
+                                <span className="w-12 h-px" style={{ background: 'linear-gradient(90deg, transparent, rgba(148,163,184,0.3))' }} />
+                                <p className="text-[10px] font-bold tracking-[0.35em] uppercase" style={{ color: 'rgba(148,163,184,0.6)' }}>Neural Interface Access</p>
+                                <span className="w-12 h-px" style={{ background: 'linear-gradient(90deg, rgba(148,163,184,0.3), transparent)' }} />
+                            </motion.div>
                         </div>
-                        <h1 className="text-4xl font-black tracking-tight text-white mb-2 italic">Moderation++</h1>
-                        <p className="text-slate-500 font-bold text-xs uppercase tracking-[0.3em]">Neural Interface Access</p>
-                    </div>
-                    
-                    <form onSubmit={handleLogin} className="space-y-5">
-                        <div className="space-y-2">
-                            <label className="text-[10px] font-black text-slate-500 uppercase ml-1 tracking-widest">Server Address</label>
-                            <div className="relative group">
-                                <Settings className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-600 group-focus-within:text-blue-400 transition-colors" />
-                                <input 
-                                    type="text" 
-                                    placeholder="https://your-bot-url.com"
-                                    className="w-full bg-slate-900/60 border border-white/5 rounded-2xl py-4 pl-12 pr-4 text-white focus:outline-none focus:border-blue-500/50 transition-all text-sm font-medium"
-                                    value={botUrl}
-                                    onChange={(e) => setBotUrl(e.target.value)}
-                                />
-                            </div>
-                        </div>
-                        <div className="space-y-2 pt-2 border-t border-white/5">
-                            <label className="text-[10px] font-black text-slate-500 uppercase ml-1 tracking-widest">Neural Access Key</label>
-                            <div className="relative group">
-                                <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-600 group-focus-within:text-blue-400 transition-colors" />
-                                <input 
-                                    type="password" 
-                                    placeholder="Enter Token or Developer Key"
-                                    className="w-full bg-slate-900/60 border border-white/5 rounded-2xl py-4 pl-12 pr-4 text-white focus:outline-none focus:border-blue-500/50 transition-all text-sm"
-                                    value={apiKey}
-                                    onChange={(e) => setApiKey(e.target.value)}
-                                />
-                            </div>
-                        </div>
-                        <motion.button 
-                            whileHover={{ scale: 1.02, y: -2 }}
-                            whileTap={{ scale: 0.98 }}
-                            className="w-full bg-white text-black font-black py-5 rounded-2xl transition-all shadow-xl mt-4 uppercase tracking-widest text-sm"
+
+                        <motion.form
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            transition={{ delay: 0.45 }}
+                            onSubmit={handleLogin}
+                            className="space-y-5"
                         >
-                            {loading ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : 'Sync Neural Link'}
-                        </motion.button>
-                    </form>
-                    {error && <p className="mt-6 text-center text-red-400 text-[10px] font-black uppercase bg-red-500/10 py-3 rounded-xl border border-red-500/20 tracking-widest">{error}</p>}
+                            {/* Server Address */}
+                            <div className="space-y-2.5">
+                                <label className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.25em]" style={{ color: 'rgba(148,163,184,0.5)' }}>
+                                    <Settings className="w-3 h-3" />
+                                    Server Address
+                                </label>
+                                <div className="relative group">
+                                    <input
+                                        type="text"
+                                        placeholder="https://your-bot-url.com"
+                                        value={botUrl}
+                                        onChange={(e) => setBotUrl(e.target.value)}
+                                        className="w-full rounded-[1rem] py-4 pl-5 pr-4 text-sm font-medium text-white placeholder-slate-600 focus:outline-none transition-all duration-300"
+                                        style={{
+                                            background: 'rgba(255,255,255,0.04)',
+                                            border: '1px solid rgba(255,255,255,0.08)',
+                                        }}
+                                        onFocus={e => {
+                                            e.currentTarget.style.border = '1px solid rgba(59,130,246,0.5)';
+                                            e.currentTarget.style.background = 'rgba(59,130,246,0.06)';
+                                            e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59,130,246,0.1), 0 0 20px rgba(59,130,246,0.08)';
+                                        }}
+                                        onBlur={e => {
+                                            e.currentTarget.style.border = '1px solid rgba(255,255,255,0.08)';
+                                            e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
+                                            e.currentTarget.style.boxShadow = 'none';
+                                        }}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Divider */}
+                            <div className="flex items-center gap-4 py-1">
+                                <div className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.05)' }} />
+                                <Key className="w-3.5 h-3.5" style={{ color: 'rgba(148,163,184,0.25)' }} />
+                                <div className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.05)' }} />
+                            </div>
+
+                            {/* Neural Access Key */}
+                            <div className="space-y-2.5">
+                                <label className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.25em]" style={{ color: 'rgba(148,163,184,0.5)' }}>
+                                    <Lock className="w-3 h-3" />
+                                    Neural Access Key
+                                </label>
+                                <div className="relative group">
+                                    <input
+                                        type="password"
+                                        placeholder="Enter Token or Developer Key"
+                                        value={apiKey}
+                                        onChange={(e) => setApiKey(e.target.value)}
+                                        className="w-full rounded-[1rem] py-4 pl-5 pr-4 text-sm text-white placeholder-slate-600 focus:outline-none transition-all duration-300"
+                                        style={{
+                                            background: 'rgba(255,255,255,0.04)',
+                                            border: '1px solid rgba(255,255,255,0.08)',
+                                        }}
+                                        onFocus={e => {
+                                            e.currentTarget.style.border = '1px solid rgba(139,92,246,0.5)';
+                                            e.currentTarget.style.background = 'rgba(139,92,246,0.06)';
+                                            e.currentTarget.style.boxShadow = '0 0 0 3px rgba(139,92,246,0.1), 0 0 20px rgba(139,92,246,0.08)';
+                                        }}
+                                        onBlur={e => {
+                                            e.currentTarget.style.border = '1px solid rgba(255,255,255,0.08)';
+                                            e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
+                                            e.currentTarget.style.boxShadow = 'none';
+                                        }}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Submit button */}
+                            <motion.button
+                                type="submit"
+                                whileHover={{ scale: 1.02, y: -2 }}
+                                whileTap={{ scale: 0.97 }}
+                                className="relative w-full py-4 rounded-[1rem] font-black text-sm uppercase tracking-[0.25em] text-white overflow-hidden mt-2"
+                                style={{
+                                    background: 'linear-gradient(135deg, #3b82f6 0%, #6366f1 50%, #8b5cf6 100%)',
+                                    boxShadow: '0 4px 30px rgba(99,102,241,0.35), 0 0 0 1px rgba(255,255,255,0.1) inset'
+                                }}
+                            >
+                                {/* Button shine */}
+                                <div className="absolute top-0 left-0 right-0 h-px" style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)' }} />
+                                <span className="relative z-10 flex items-center justify-center gap-3">
+                                    {loading
+                                        ? <><RefreshCw className="w-4 h-4 animate-spin" /><span>Establishing Link...</span></>
+                                        : <><span>Sync Neural Link</span><ChevronRight className="w-4 h-4 opacity-70" /></>
+                                    }
+                                </span>
+                            </motion.button>
+                        </motion.form>
+
+                        {/* Error state */}
+                        {error && (
+                            <motion.div
+                                initial={{ opacity: 0, y: 6 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                className="mt-5 flex items-center gap-3 px-4 py-3 rounded-xl border"
+                                style={{ background: 'rgba(239,68,68,0.08)', borderColor: 'rgba(239,68,68,0.2)' }}
+                            >
+                                <div className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0 animate-pulse" />
+                                <p className="text-red-400 text-[10px] font-black uppercase tracking-widest">{error}</p>
+                            </motion.div>
+                        )}
+
+                        {/* Bottom watermark */}
+                        <p className="mt-8 text-center text-[9px] uppercase tracking-[0.3em]" style={{ color: 'rgba(148,163,184,0.2)' }}>
+                            Secured · End-to-End Encrypted
+                        </p>
+                    </div>
                 </motion.div>
             </div>
         );
