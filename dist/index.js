@@ -16,28 +16,29 @@ const app = (0, express_1.default)();
 app.use((0, cors_1.default)());
 app.use(express_1.default.json());
 /**
- * Robust identity validation for all dashboard requests.
- * Supports DEV_KEY bypass and multi-server moderator lists.
+ * Robust identity validation.
+ * Prioritizes requested guild, fallbacks to search, supports empty cold-start for devs.
  */
 function getAuthorizedIdentity(username, key, requestedGuildId) {
     const configs = (0, config_1.getAllConfigs)();
-    // 1. Check Developer Override
+    // 1. Check Developer Identity
     const isDev = process.env.DEV_KEY && key === process.env.DEV_KEY;
     if (isDev) {
-        const guildId = requestedGuildId || Object.keys(configs)[0];
-        return guildId ? { guildId, role: 'DEV', isDev: true } : null;
+        // If a specific guild is requested, use it. Otherwise use first available or null (for cold start).
+        const guildId = requestedGuildId || Object.keys(configs)[0] || null;
+        return { guildId, role: 'DEV', isDev: true };
     }
     // 2. Validate Standard Identity
     if (!username || !key)
         return null;
-    // If a specific guild is requested, check that first
+    // A. Check requested guild first (Explicit Path)
     if (requestedGuildId && configs[requestedGuildId]) {
         const config = configs[requestedGuildId];
         const user = config.authorizedUsers.find(u => u.username === username && u.key === key);
         if (user)
             return { guildId: requestedGuildId, role: user.role, isDev: false };
     }
-    // Fallback: Search all guilds for this identity
+    // B. Search all guilds (Discovery Path)
     for (const guildId in configs) {
         const config = configs[guildId];
         const user = config.authorizedUsers.find(u => u.username === username && u.key === key);
@@ -55,6 +56,17 @@ app.get('/api/stats', (req, res) => {
     (0, stats_1.recordAccess)({ timestamp: new Date().toISOString(), ip: Array.isArray(ip) ? ip[0] : ip, success: !!auth });
     if (!auth)
         return res.status(401).json({ error: 'Unauthorized: Invalid Identity' });
+    // Handle Cold Start (Dev login with no guilds yet)
+    if (!auth.guildId) {
+        return res.json({
+            ...(0, stats_1.getGlobalStats)(),
+            totalEvaluations: 0, totalViolations: 0, totalTimeouts: 0,
+            lastActions: [], massScans: [], dashboardAuditLogs: [],
+            guildId: null, isDev: true, role: 'DEV', defaultTimeout: 10,
+            authorizedUsers: [], communityVibe: { status: 'Inactive', score: 0, label: 'No Servers Linked' },
+            cachedRules: ''
+        });
+    }
     const guildStats = (0, stats_1.getGuildStats)(auth.guildId);
     const globalStats = (0, stats_1.getGlobalStats)();
     const guildConfig = (0, config_1.getConfig)(auth.guildId);
@@ -71,21 +83,17 @@ app.get('/api/stats', (req, res) => {
     });
 });
 app.get('/api/members', async (req, res) => {
-    const username = req.headers['x-username'];
-    const key = req.headers['x-api-key'];
+    const username = req.headers['x-username'], key = req.headers['x-api-key'];
     const auth = getAuthorizedIdentity(username, key, req.query.guildId);
-    if (!auth)
+    if (!auth || !auth.guildId)
         return res.status(401).json({ error: 'Unauthorized' });
     try {
         const guild = await client_1.client.guilds.fetch(auth.guildId);
         const members = await guild.members.fetch();
         const memberList = members.map(m => ({
-            tag: m.user.tag,
-            nickname: m.nickname,
-            avatar: m.user.displayAvatarURL(),
+            tag: m.user.tag, nickname: m.nickname, avatar: m.user.displayAvatarURL(),
             roles: m.roles.cache.map(r => r.name).filter(n => n !== '@everyone'),
-            joinedAt: m.joinedAt?.toISOString(),
-            status: m.presence?.status || 'offline'
+            joinedAt: m.joinedAt?.toISOString(), status: m.presence?.status || 'offline'
         }));
         res.json(memberList);
     }
@@ -94,12 +102,10 @@ app.get('/api/members', async (req, res) => {
     }
 });
 app.post('/api/config/refresh-rules', async (req, res) => {
-    const username = req.headers['x-username'];
-    const key = req.headers['x-api-key'];
+    const username = req.headers['x-username'], key = req.headers['x-api-key'];
     const auth = getAuthorizedIdentity(username, key, req.body.guildId);
-    if (!auth || (auth.role !== 'ADMIN' && auth.role !== 'DEV')) {
-        return res.status(403).json({ error: 'Forbidden: Admin access required' });
-    }
+    if (!auth || !auth.guildId || auth.role === 'MOD')
+        return res.status(403).json({ error: 'Forbidden' });
     const config = (0, config_1.getConfig)(auth.guildId);
     if (!config?.rulesChannelId)
         return res.status(400).json({ error: 'No rules channel configured' });
@@ -113,43 +119,33 @@ app.post('/api/config/refresh-rules', async (req, res) => {
     }
 });
 app.post('/api/users/add', async (req, res) => {
-    const username = req.headers['x-username'];
-    const key = req.headers['x-api-key'];
+    const username = req.headers['x-username'], key = req.headers['x-api-key'];
     const auth = getAuthorizedIdentity(username, key, req.body.guildId);
-    if (!auth || (auth.role !== 'ADMIN' && auth.role !== 'DEV')) {
-        return res.status(403).json({ error: 'Forbidden: Admin access required' });
-    }
+    if (!auth || (auth.role !== 'ADMIN' && auth.role !== 'DEV'))
+        return res.status(403).json({ error: 'Forbidden' });
     const { newUsername, newKey, newRole, guildId } = req.body;
     const targetGuildId = guildId || auth.guildId;
+    if (!targetGuildId)
+        return res.status(400).json({ error: 'Guild ID required' });
     const config = (0, config_1.getConfig)(targetGuildId);
     if (!config)
         return res.status(404).json({ error: 'Server config not found' });
-    if (config.authorizedUsers.some(u => u.username === newUsername)) {
-        return res.status(400).json({ error: 'User already exists' });
-    }
     config.authorizedUsers.push({ username: newUsername, key: newKey, role: newRole || 'MOD' });
     (0, config_1.saveConfig)(config);
-    (0, stats_1.recordDashboardAction)(targetGuildId, {
-        timestamp: new Date().toISOString(),
-        user: username,
-        action: 'Authorized New Identity',
-        target: newUsername
-    });
+    (0, stats_1.recordDashboardAction)(targetGuildId, { timestamp: new Date().toISOString(), user: username, action: 'Authorized New Identity', target: newUsername });
     res.json({ success: true });
 });
 app.get('/api/dev/guilds', (req, res) => {
     const key = req.headers['x-api-key'];
-    if (!process.env.DEV_KEY || key !== process.env.DEV_KEY) {
+    if (!process.env.DEV_KEY || key !== process.env.DEV_KEY)
         return res.status(403).json({ error: 'Forbidden' });
-    }
     const guilds = client_1.client.guilds.cache.map(g => ({ id: g.id, name: g.name, icon: g.iconURL(), memberCount: g.memberCount }));
     res.json(guilds);
 });
 app.get('/api/channels', async (req, res) => {
-    const username = req.headers['x-username'];
-    const key = req.headers['x-api-key'];
+    const username = req.headers['x-username'], key = req.headers['x-api-key'];
     const auth = getAuthorizedIdentity(username, key, req.query.guildId);
-    if (!auth)
+    if (!auth || !auth.guildId)
         return res.status(401).json({ error: 'Unauthorized' });
     try {
         const guild = await client_1.client.guilds.fetch(auth.guildId);
@@ -162,15 +158,14 @@ app.get('/api/channels', async (req, res) => {
         res.json(channels);
     }
     catch (e) {
-        res.status(500).json({ error: 'Failed to fetch channels' });
+        res.status(500).json({ error: 'Failed' });
     }
 });
 app.post('/api/timeout', async (req, res) => {
-    const username = req.headers['x-username'];
-    const key = req.headers['x-api-key'];
+    const username = req.headers['x-username'], key = req.headers['x-api-key'];
     const { guildId, userTag, minutes, reason } = req.body;
     const auth = getAuthorizedIdentity(username, key, guildId);
-    if (!auth)
+    if (!auth || !auth.guildId)
         return res.status(401).json({ error: 'Unauthorized' });
     try {
         const guild = await client_1.client.guilds.fetch(auth.guildId);
@@ -182,17 +177,11 @@ app.post('/api/timeout', async (req, res) => {
         if (!member)
             return res.status(404).json({ error: 'Member not found' });
         const botMember = await guild.members.fetch(client_1.client.user.id);
-        if (member.roles.highest.position >= botMember.roles.highest.position) {
-            return res.status(403).json({ error: 'Hierarchy Error: Move bot role to top!' });
-        }
+        if (member.roles.highest.position >= botMember.roles.highest.position)
+            return res.status(403).json({ error: 'Hierarchy Error' });
         await member.timeout(minutes * 60 * 1000, `Neural Enforcement by ${username}: ${reason || 'Manual'}`);
         (0, stats_1.recordTimeout)(auth.guildId);
-        (0, stats_1.recordDashboardAction)(auth.guildId, {
-            timestamp: new Date().toISOString(),
-            user: username,
-            action: `Enforced ${minutes}m Timeout`,
-            target: userTag
-        });
+        (0, stats_1.recordDashboardAction)(auth.guildId, { timestamp: new Date().toISOString(), user: username, action: `Enforced ${minutes}m Timeout`, target: userTag });
         res.json({ success: true });
     }
     catch (e) {
@@ -200,30 +189,20 @@ app.post('/api/timeout', async (req, res) => {
     }
 });
 app.post('/api/mass-scan', async (req, res) => {
-    const username = req.headers['x-username'];
-    const key = req.headers['x-api-key'];
+    const username = req.headers['x-username'], key = req.headers['x-api-key'];
     const { channelId, guildId } = req.body;
     const auth = getAuthorizedIdentity(username, key, guildId);
-    if (!auth)
+    if (!auth || !auth.guildId)
         return res.status(401).json({ error: 'Unauthorized' });
     try {
         const channel = await client_1.client.channels.fetch(channelId);
         if (!channel || !channel.isTextBased())
-            return res.status(404).json({ error: 'Channel not found' });
+            return res.status(404).json({ error: 'Not found' });
         const textChannel = channel;
-        // Cross-guild security check for non-devs
-        if (!auth.isDev && textChannel.guild.id !== auth.guildId) {
-            return res.status(403).json({ error: 'Forbidden: You cannot scan channels outside your authorized server.' });
-        }
+        if (!auth.isDev && textChannel.guild.id !== auth.guildId)
+            return res.status(403).json({ error: 'Forbidden' });
         const report = await (0, moderation_1.performMassScan)(textChannel);
-        if (!report)
-            return res.status(500).json({ error: 'Audit generation failed.' });
-        (0, stats_1.recordDashboardAction)(auth.guildId, {
-            timestamp: new Date().toISOString(),
-            user: username,
-            action: 'Initiated Community Audit',
-            target: `#${textChannel.name}`
-        });
+        (0, stats_1.recordDashboardAction)(auth.guildId, { timestamp: new Date().toISOString(), user: username, action: 'Initiated Community Audit', target: `#${textChannel.name}` });
         res.json(report);
     }
     catch (e) {
@@ -274,12 +253,9 @@ client_1.client.once(discord_js_1.Events.ClientReady, async (readyClient) => {
         const config = configs[guildId];
         if (config.rulesChannelId) {
             try {
-                // Ensure guild exists and bot is still in it before fetching
                 const guild = await client_1.client.guilds.fetch(guildId).catch(() => null);
-                if (!guild) {
-                    console.log(`[Startup] Skipping ghost guild ${guildId}`);
+                if (!guild)
                     continue;
-                }
                 await (0, rules_1.fetchRules)(guildId, config.rulesChannelId);
             }
             catch (e) {
@@ -340,12 +316,10 @@ client_1.client.on(discord_js_1.Events.InteractionCreate, async (interaction) =>
                 if (guildId && key) {
                     const config = (0, config_1.getConfig)(guildId) || { guildId, authorizedUsers: [] };
                     const adminUser = config.authorizedUsers.find(u => u.username === 'admin');
-                    if (!adminUser) {
+                    if (!adminUser)
                         config.authorizedUsers.push({ username: 'admin', key, role: 'ADMIN' });
-                    }
-                    else {
+                    else
                         adminUser.key = key;
-                    }
                     (0, config_1.saveConfig)(config);
                     await interaction.reply({ content: '✅ Admin key updated! Login with username "admin".', flags: [discord_js_1.MessageFlags.Ephemeral] });
                 }

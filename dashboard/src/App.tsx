@@ -45,7 +45,7 @@ interface BotStats {
     accessLogs: { timestamp: string; ip: string; success: boolean }[];
     isDev: boolean;
     role: string;
-    guildId: string;
+    guildId: string | null;
     defaultTimeout: number;
     authorizedUsers: AuthorizedUser[];
     communityVibe: { status: string; score: number; label: string };
@@ -83,6 +83,8 @@ function App() {
     const [username, setUsername] = useState(sessionStorage.getItem('dashboard_user') || '');
     const [apiKey, setApiKey] = useState(sessionStorage.getItem('dashboard_key') || localStorage.getItem('dashboard_key') || '');
     const [botUrl, setBotUrl] = useState(localStorage.getItem('bot_url') || 'http://localhost:3000');
+    const [loginGuildId, setLoginGuildId] = useState(''); // FOR LOGIN ONLY
+    
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [stats, setStats] = useState<BotStats | null>(null);
     const [members, setMembers] = useState<Member[]>([]);
@@ -96,7 +98,7 @@ function App() {
     const [channels, setChannels] = useState<{id: string, name: string}[]>([]);
     const [guilds, setGuilds] = useState<{id: string, name: string, icon: string | null}[]>([]);
     const [selectedChannel, setSelectedChannel] = useState('');
-    const [selectedGuild, setSelectedGuild] = useState('');
+    const [selectedGuild, setSelectedGuild] = useState(sessionStorage.getItem('selected_guild') || '');
     const [scanning, setScanning] = useState(false);
     const [sessionTimeout, setSessionTimeout] = useState(10);
 
@@ -117,27 +119,35 @@ function App() {
             setStats(response.data);
             if (response.data.defaultTimeout && sessionTimeout === 10) setSessionTimeout(response.data.defaultTimeout);
             setError('');
-            if (response.data.guildId && !selectedGuild) setSelectedGuild(response.data.guildId);
-        } catch (err: unknown) {
-            const msg = axios.isAxiosError(err) ? (err.response?.data?.error || 'Neural Link Error') : 'Connection Error';
-            setError(msg);
-            if (axios.isAxiosError(err) && err.response?.status === 401) setIsLoggedIn(false);
+            
+            // If bot returns a guildId we didn't have, save it
+            if (response.data.guildId && !selectedGuild) {
+                setSelectedGuild(response.data.guildId);
+                sessionStorage.setItem('selected_guild', response.data.guildId);
+            }
+        } catch (err: any) {
+            if (err.code === 'ERR_NETWORK') {
+                setError('Neural Link Severed: Local Bot process is offline.');
+            } else {
+                setError(err.response?.data?.error || 'Neural Link Error');
+                if (err.response?.status === 401) setIsLoggedIn(false);
+            }
         } finally { setLoading(false); }
     };
 
     const fetchMembers = async () => {
-        if (!apiKey || !isLoggedIn) return;
+        if (!apiKey || !isLoggedIn || !selectedGuild) return;
         try {
             const response = await axios.get(`${botUrl}/api/members`, {
                 headers: { 'x-api-key': apiKey, 'x-username': username },
                 params: { guildId: selectedGuild }
             });
             setMembers(response.data);
-        } catch { console.error('Failed to fetch members'); }
+        } catch (e) { console.error('Failed to fetch members'); }
     };
 
     const fetchChannels = async () => {
-        if (!apiKey || !isLoggedIn) return;
+        if (!apiKey || !isLoggedIn || !selectedGuild) return;
         try {
             const response = await axios.get(`${botUrl}/api/channels`, {
                 headers: { 'x-api-key': apiKey, 'x-username': username },
@@ -185,7 +195,7 @@ function App() {
         if (!selectedChannel) return;
         setScanning(true);
         try {
-            const response = await axios.post(`${botUrl}/api/mass-scan`, { channelId: selectedChannel }, { headers: { 'x-api-key': apiKey, 'x-username': username } });
+            const response = await axios.post(`${botUrl}/api/mass-scan`, { channelId: selectedChannel, guildId: selectedGuild }, { headers: { 'x-api-key': apiKey, 'x-username': username } });
             setSelectedAudit(response.data);
             fetchData();
         } catch { setError('Mass scan failed.'); }
@@ -198,8 +208,8 @@ function App() {
         try {
             await axios.post(`${botUrl}/api/timeout`, { guildId: selectedGuild || stats?.guildId, userTag, minutes }, { headers: { 'x-api-key': apiKey, 'x-username': username } });
             fetchData();
-        } catch (err: unknown) { 
-            const msg = axios.isAxiosError(err) ? (err.response?.data?.error || 'Enforcement failed.') : 'Enforcement failed.';
+        } catch (err: any) { 
+            const msg = err.response?.data?.error || 'Enforcement failed.';
             alert(msg); 
         }
     };
@@ -219,13 +229,25 @@ function App() {
         e.preventDefault();
         setLoading(true); setError('');
         try {
-            const response = await axios.get(`${botUrl}/api/stats`, { headers: { 'x-api-key': apiKey, 'x-username': username } });
+            const response = await axios.get(`${botUrl}/api/stats`, { 
+                headers: { 'x-api-key': apiKey, 'x-username': username },
+                params: { guildId: loginGuildId } 
+            });
+            
             if (response.data.isDev) localStorage.setItem('dashboard_key', apiKey);
             else sessionStorage.setItem('dashboard_key', apiKey);
+            
             sessionStorage.setItem('dashboard_user', username);
+            if (response.data.guildId) {
+                setSelectedGuild(response.data.guildId);
+                sessionStorage.setItem('selected_guild', response.data.guildId);
+            }
+            
             setStats(response.data); setIsLoggedIn(true);
-        } catch { setError('Invalid Identity or Bot Offline'); }
-        finally { setLoading(false); }
+        } catch (err: any) { 
+            if (err.code === 'ERR_NETWORK') setError('Bot Offline: Local API is not reachable.');
+            else setError(err.response?.data?.error || 'Invalid Identity'); 
+        } finally { setLoading(false); }
     };
 
     const handleLogout = () => {
@@ -271,14 +293,21 @@ function App() {
                         <p className="text-slate-500 font-bold text-[9px] uppercase tracking-[0.4em]">Neural Link Interface Access</p>
                     </div>
                     <form onSubmit={handleLogin} className="space-y-6">
-                        <div className="space-y-2"><label className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.25em] text-slate-500"><Globe className="w-3 h-3" />API Gateway</label><input type="text" value={botUrl} onChange={(e) => setBotUrl(e.target.value)} className="w-full rounded-xl py-4 px-5 text-sm text-white bg-white/5 border border-white/10 focus:outline-none focus:border-blue-500/50" /></div>
+                        <div className="space-y-2">
+                            <label className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.25em] text-slate-500"><Globe className="w-3 h-3" />API Gateway</label>
+                            <input type="text" value={botUrl} onChange={(e) => setBotUrl(e.target.value)} className="w-full rounded-xl py-4 px-5 text-sm text-white bg-white/5 border border-white/10 focus:outline-none focus:border-blue-500/50" />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.25em] text-slate-500"><Server className="w-3 h-3" />Target Server ID (Optional)</label>
+                            <input type="text" placeholder="Discord Guild ID" value={loginGuildId} onChange={(e) => setLoginGuildId(e.target.value)} className="w-full rounded-xl py-4 px-5 text-sm text-white bg-white/5 border border-white/10 focus:outline-none focus:border-blue-500/50" />
+                        </div>
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2"><label className="text-[9px] font-black uppercase tracking-[0.25em] text-slate-500">Username</label><input type="text" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full rounded-xl py-4 px-5 text-sm text-white bg-white/5 border border-white/10 focus:outline-none" /></div>
                             <div className="space-y-2"><label className="text-[9px] font-black uppercase tracking-[0.25em] text-slate-500">Neural Key</label><input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="w-full rounded-xl py-4 px-5 text-sm text-white bg-white/5 border border-white/10 focus:outline-none" /></div>
                         </div>
                         <button type="submit" className="w-full py-4 rounded-xl font-black text-xs uppercase tracking-widest text-white bg-gradient-to-r from-blue-600 to-indigo-600 shadow-lg shadow-blue-500/20">{loading ? 'Syncing...' : 'Establish Neural Link'}</button>
                     </form>
-                    {error && <p className="mt-6 text-center text-red-400 text-[10px] font-black uppercase tracking-widest">{error}</p>}
+                    {error && <p className="mt-6 text-center text-red-400 text-[10px] font-black uppercase tracking-widest bg-red-500/10 py-3 rounded-xl border border-red-500/20">{error}</p>}
                 </motion.div>
             </div>
         );
@@ -294,7 +323,7 @@ function App() {
                         </div>
                         <div>
                             <div className="flex items-center gap-3"><h1 className="text-3xl font-black text-white leading-tight uppercase italic">{isDevMode ? 'Developer' : 'Control'} Center</h1><span className={`px-2 py-0.5 bg-white/5 border border-white/10 rounded-md text-[10px] font-black text-slate-400 uppercase tracking-widest`}>{stats?.role} ID</span></div>
-                            <div className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mt-1">{username} • {stats?.guildId}</div>
+                            <div className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mt-1">{username} • {selectedGuild || 'NO SERVER'}</div>
                         </div>
                     </div>
                     
@@ -314,7 +343,7 @@ function App() {
                         </div>
                         {isDevMode && guilds.length > 0 && (
                             <div className="flex items-center gap-3 px-4 py-2 bg-white/5 rounded-2xl border border-white/5">
-                                <Server className="w-4 h-4 text-red-400" /><select value={selectedGuild} onChange={(e) => setSelectedGuild(e.target.value)} className="bg-transparent text-xs font-black uppercase text-white focus:outline-none cursor-pointer pr-4">{guilds.map(g => (<option key={g.id} value={g.id} className="bg-slate-900 text-white">{g.name}</option>))}</select>
+                                <Server className="w-4 h-4 text-red-400" /><select value={selectedGuild} onChange={(e) => { setSelectedGuild(e.target.value); sessionStorage.setItem('selected_guild', e.target.value); }} className="bg-transparent text-xs font-black uppercase text-white focus:outline-none cursor-pointer pr-4">{guilds.map(g => (<option key={g.id} value={g.id} className="bg-slate-900 text-white">{g.name}</option>))}</select>
                             </div>
                         )}
                         <button onClick={handleLogout} className="p-4 glass rounded-2xl hover:bg-red-500/10 text-slate-400 hover:text-red-400 transition-all active:scale-95"><LogOut className="w-5 h-5" /></button>
@@ -414,7 +443,12 @@ function App() {
                         <motion.div key="users" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="grid grid-cols-1 lg:grid-cols-3 gap-10">
                             <div className="lg:col-span-2 glass rounded-[2.5rem] p-10 border border-white/5">
                                 <h2 className="text-3xl font-black text-white uppercase italic mb-10 flex items-center gap-4"><ShieldCheck className={`w-8 h-8 text-${themeColor}-400`} />Authorized Identities</h2>
-                                <div className="space-y-4">{stats?.authorizedUsers.map((u, i) => (<div key={i} className="flex items-center justify-between p-6 glass rounded-2xl border border-white/5"><div className="flex items-center gap-6"><div className="p-3 bg-slate-900 rounded-xl"><User className="w-6 h-6 text-white" /></div><div><div className="font-black text-white text-lg">{u.username}</div><div className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{u.role} CLEARANCE</div></div></div><span className="px-4 py-1.5 bg-green-500/10 text-green-400 border border-green-500/20 rounded-lg text-[10px] font-black uppercase tracking-widest">Active</span></div>))}</div>
+                                <div className="space-y-4">{stats?.authorizedUsers.map((u, i) => (
+                                    <div key={i} className="flex items-center justify-between p-6 glass rounded-2xl border border-white/5">
+                                        <div className="flex items-center gap-6"><div className="p-3 bg-slate-900 rounded-xl"><User className="w-6 h-6 text-white" /></div><div><div className="font-black text-white text-lg">{u.username}</div><div className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{u.role} CLEARANCE</div></div></div>
+                                        <span className="px-4 py-1.5 bg-green-500/10 text-green-400 border border-green-500/20 rounded-lg text-[10px] font-black uppercase tracking-widest">Active</span>
+                                    </div>
+                                ))}</div>
                             </div>
                             <div className="glass rounded-[2.5rem] p-10 border border-white/5"><h2 className="text-xl font-black text-white uppercase italic mb-8 flex items-center gap-3"><UserPlus className="w-6 h-6 text-blue-400" />Authorize User</h2><form onSubmit={handleAddUser} className="space-y-6"><div className="space-y-2"><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Username</label><input type="text" value={newUser.username} onChange={(e) => setNewUser({...newUser, username: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl p-4 text-white focus:outline-none" /></div><div className="space-y-2"><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Access Key</label><input type="password" value={newUser.key} onChange={(e) => setNewUser({...newUser, key: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl p-4 text-white focus:outline-none" /></div><div className="space-y-2"><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Clearance</label><select value={newUser.role} onChange={(e) => setNewUser({...newUser, role: e.target.value as any})} className="w-full bg-white/5 border border-white/10 rounded-xl p-4 text-white focus:outline-none"><option value="MOD" className="bg-slate-900">MODERATOR</option><option value="ADMIN" className="bg-slate-900">ADMINISTRATOR</option></select></div><button type="submit" className="w-full py-4 bg-blue-600 hover:bg-blue-500 rounded-xl font-black text-white uppercase tracking-widest shadow-lg transition-all">Authorize Identity</button></form></div>
                         </motion.div>
@@ -444,7 +478,7 @@ function App() {
                                 <div className="flex items-center gap-4"><button onClick={() => setSelectedAudit(null)} className="p-4 glass rounded-2xl hover:bg-white/10 transition-colors border border-white/5"><X className="w-8 h-8 text-slate-400" /></button></div>
                             </div>
                             <div className="flex-1 overflow-y-auto p-10 space-y-10 custom-scrollbar">
-                                <div className={`glass p-10 rounded-[3rem] ${isDevMode ? 'bg-red-500/5 border-red-500/20' : 'bg-blue-500/5 border-blue-500/20'} border-2`}><p className="text-3xl text-slate-100 font-black leading-tight italic tracking-tight">"{selectedAudit.generalConclusion}"</p></div>
+                                <div className={`glass p-10 rounded-[3rem] ${isDevMode ? 'bg-red-500/5 border-red-500/20' : 'bg-blue-500/5 border-blue-500/10'} border-2`}><p className="text-3xl text-slate-100 font-black leading-tight italic tracking-tight">"{selectedAudit.generalConclusion}"</p></div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-4 gap-8">{selectedAudit.usersAnalyzed.map((user, i) => (<motion.div key={i} className="glass p-8 rounded-[2.5rem] border border-white/5 bg-white/[0.01] flex flex-col h-full"><div className="flex items-center justify-between mb-2"><div className={`font-black text-xl text-white tracking-tighter`}>{user.userTag}</div><span className={`px-4 py-1.5 rounded-xl text-[9px] font-black border ${user.riskLevel === 'Critical' ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}>{user.riskLevel} RISK</span></div><p className="text-slate-400 text-sm font-bold italic flex-1">"{user.behaviorSummary}"</p><div className="pt-6 border-t border-white/5 mt-6"><button onClick={() => handleTimeout(user.userTag)} className="w-full bg-red-600 hover:bg-red-500 py-3 rounded-xl font-black text-white text-[8px] uppercase tracking-widest flex items-center justify-center gap-2"><Gavel className="w-3 h-3" />Timeout</button></div></motion.div>))}</div>
                             </div>
                         </motion.div>
