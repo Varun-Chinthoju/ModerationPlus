@@ -299,11 +299,12 @@ function App() {
                     
                     <form onSubmit={handleLogin} className="space-y-5">
                         <div className="space-y-2">
-                            <label className="text-[10px] font-black text-slate-500 uppercase ml-1 tracking-widest">Bot Gateway</label>
+                            <label className="text-[10px] font-black text-slate-500 uppercase ml-1 tracking-widest">Server Address</label>
                             <div className="relative group">
                                 <Settings className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-600 group-focus-within:text-blue-400 transition-colors" />
                                 <input 
                                     type="text" 
+                                    placeholder="https://your-bot-url.com"
                                     className="w-full bg-slate-900/60 border border-white/5 rounded-2xl py-4 pl-12 pr-4 text-white focus:outline-none focus:border-blue-500/50 transition-all text-sm font-medium"
                                     value={botUrl}
                                     onChange={(e) => setBotUrl(e.target.value)}
