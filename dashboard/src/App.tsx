@@ -118,10 +118,10 @@ function App() {
             if (response.data.defaultTimeout && sessionTimeout === 10) setSessionTimeout(response.data.defaultTimeout);
             setError('');
             if (response.data.guildId && !selectedGuild) setSelectedGuild(response.data.guildId);
-        } catch (err: any) {
-            const msg = err.response?.data?.error || 'Neural Link Error';
+        } catch (err: unknown) {
+            const msg = axios.isAxiosError(err) ? (err.response?.data?.error || 'Neural Link Error') : 'Connection Error';
             setError(msg);
-            if (err.response?.status === 401) setIsLoggedIn(false);
+            if (axios.isAxiosError(err) && err.response?.status === 401) setIsLoggedIn(false);
         } finally { setLoading(false); }
     };
 
@@ -133,7 +133,7 @@ function App() {
                 params: { guildId: selectedGuild }
             });
             setMembers(response.data);
-        } catch (e) { console.error('Failed to fetch members'); }
+        } catch { console.error('Failed to fetch members'); }
     };
 
     const fetchChannels = async () => {
@@ -145,12 +145,12 @@ function App() {
             });
             setChannels(response.data);
             if (response.data.length > 0) {
-                const currentExists = response.data.some((c: any) => c.id === selectedChannel);
+                const currentExists = response.data.some((c: { id: string }) => c.id === selectedChannel);
                 if (!currentExists) setSelectedChannel(response.data[0].id);
             } else {
                 setSelectedChannel('');
             }
-        } catch (e) { console.error('Failed to fetch channels'); }
+        } catch { console.error('Failed to fetch channels'); }
     };
 
     const fetchGuilds = async () => {
@@ -158,7 +158,7 @@ function App() {
         try {
             const response = await axios.get(`${botUrl}/api/dev/guilds`, { headers: { 'x-api-key': apiKey } });
             setGuilds(response.data);
-        } catch (e) {}
+        } catch { /* Silent fail */ }
     };
 
     const handleRefreshRules = async () => {
@@ -167,7 +167,7 @@ function App() {
             await axios.post(`${botUrl}/api/config/refresh-rules`, { guildId: selectedGuild }, { headers: { 'x-api-key': apiKey, 'x-username': username } });
             alert('Sovereign Rules Synchronized.');
             fetchData();
-        } catch (e) { alert('Sync Failed.'); }
+        } catch { alert('Sync Failed.'); }
         finally { setLoading(false); }
     };
 
@@ -178,7 +178,7 @@ function App() {
             alert(`User ${newUser.username} authorized.`);
             setNewUser({ username: '', key: '', role: 'MOD' });
             fetchData();
-        } catch (err: any) { alert('Authorization Failed.'); }
+        } catch { alert('Authorization Failed.'); }
     };
 
     const handleMassScan = async () => {
@@ -188,7 +188,7 @@ function App() {
             const response = await axios.post(`${botUrl}/api/mass-scan`, { channelId: selectedChannel }, { headers: { 'x-api-key': apiKey, 'x-username': username } });
             setSelectedAudit(response.data);
             fetchData();
-        } catch (err: any) { setError('Mass scan failed.'); }
+        } catch { setError('Mass scan failed.'); }
         finally { setScanning(false); }
     };
 
@@ -198,7 +198,10 @@ function App() {
         try {
             await axios.post(`${botUrl}/api/timeout`, { guildId: selectedGuild || stats?.guildId, userTag, minutes }, { headers: { 'x-api-key': apiKey, 'x-username': username } });
             fetchData();
-        } catch (err: any) { alert(err.response?.data?.error || 'Enforcement failed.'); }
+        } catch (err: unknown) { 
+            const msg = axios.isAxiosError(err) ? (err.response?.data?.error || 'Enforcement failed.') : 'Enforcement failed.';
+            alert(msg); 
+        }
     };
 
     useEffect(() => {
@@ -221,7 +224,7 @@ function App() {
             else sessionStorage.setItem('dashboard_key', apiKey);
             sessionStorage.setItem('dashboard_user', username);
             setStats(response.data); setIsLoggedIn(true);
-        } catch (err: any) { setError('Invalid Identity or Bot Offline'); }
+        } catch { setError('Invalid Identity or Bot Offline'); }
         finally { setLoading(false); }
     };
 
@@ -452,8 +455,8 @@ function App() {
     );
 }
 
-function StatsBarItem({ icon, label, value, color, subtitle }: any) {
-    const textColors: any = { blue: 'text-blue-400', red: 'text-red-400', orange: 'text-orange-400', purple: 'text-purple-400', green: 'text-green-400' };
+function StatsBarItem({ icon, label, value, color, subtitle }: { icon: React.ReactNode, label: string, value: string | number, color: string, subtitle: string }) {
+    const textColors: Record<string, string> = { blue: 'text-blue-400', red: 'text-red-400', orange: 'text-orange-400', purple: 'text-purple-400', green: 'text-green-400' };
     return (
         <div className="flex-1 p-8 flex items-center gap-6 group hover:bg-white/[0.02] transition-all relative overflow-hidden">
             <div className={`p-3 bg-slate-900/50 rounded-2xl border border-white/5 ${textColors[color]} group-hover:scale-110 transition-transform duration-500`}>{icon}</div>
@@ -463,7 +466,7 @@ function StatsBarItem({ icon, label, value, color, subtitle }: any) {
     );
 }
 
-function TabButton({ active, onClick, icon, label, color }: any) {
+function TabButton({ active, onClick, icon, label, color }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string, color: string }) {
     return (
         <button onClick={onClick} className={`flex items-center gap-3 px-6 py-3 rounded-xl transition-all font-black uppercase text-[10px] tracking-widest ${active ? `bg-${color}-600 text-white shadow-lg` : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'}`}>{icon}<span>{label}</span></button>
     );

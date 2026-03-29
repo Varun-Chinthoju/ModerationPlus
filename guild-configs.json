@@ -37,16 +37,6 @@
         "username": "banana",
         "key": "Key",
         "role": "ADMIN"
-      },
-      {
-        "username": "",
-        "key": "",
-        "role": "MOD"
-      },
-      {
-        "username": "",
-        "key": "",
-        "role": "MOD"
       }
     ]
   }
