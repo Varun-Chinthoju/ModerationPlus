@@ -227,11 +227,29 @@ function App() {
         }
     }, [isLoggedIn, botUrl, apiKey, selectedGuild, isDevMode]);
 
-    const handleLogin = (e: React.FormEvent) => {
+    const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
-        localStorage.setItem('dashboard_key', apiKey);
-        localStorage.setItem('bot_url', botUrl);
-        setIsLoggedIn(true);
+        if (!apiKey) return;
+        
+        setLoading(true);
+        setError('');
+        
+        try {
+            // Attempt to fetch stats to verify the key
+            const response = await axios.get(`${botUrl}/api/stats`, {
+                headers: { 'x-api-key': apiKey }
+            });
+            
+            // If successful, save and log in
+            localStorage.setItem('dashboard_key', apiKey);
+            localStorage.setItem('bot_url', botUrl);
+            setStats(response.data);
+            setIsLoggedIn(true);
+        } catch (err: any) {
+            setError(err.response?.data?.error || 'Invalid Key or Bot Offline');
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleLogout = () => {
