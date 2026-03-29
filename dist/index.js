@@ -49,7 +49,7 @@ app.get('/api/stats', (req, res) => {
         ...guildStats,
         guildId: authorizedGuildId,
         isDev: !!isDevKey,
-        defaultTimeout: guildConfig?.defaultTimeout || 10 // FIXED: Pass default timeout to dashboard
+        defaultTimeout: guildConfig?.defaultTimeout || 10
     });
 });
 app.get('/api/dev/guilds', (req, res) => {
@@ -135,7 +135,6 @@ app.post('/api/timeout', async (req, res) => {
     const { getAllConfigs } = require('./config');
     const configs = getAllConfigs();
     const config = Object.values(configs).find((c) => c.dashboardKey === key && key !== undefined && key !== '');
-    // Authorization Check
     if (!isDev && (!config || config.guildId !== guildId)) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
@@ -143,13 +142,19 @@ app.post('/api/timeout', async (req, res) => {
         const guild = await client_1.client.guilds.fetch(guildId);
         if (!guild)
             return res.status(404).json({ error: 'Guild not found' });
+        // REST-BASED FETCH (Avoids Opcode 8)
         let member = guild.members.cache.find(m => m.user.tag === userTag || m.user.username === userTag);
         if (!member) {
-            const members = await guild.members.fetch();
-            member = members.find(m => m.user.tag === userTag || m.user.username === userTag);
+            const results = await guild.members.search({ query: userTag, limit: 1 });
+            member = results.first();
         }
         if (!member)
             return res.status(404).json({ error: 'Member not found in server' });
+        // Hierarchy Check
+        const botMember = await guild.members.fetch(client_1.client.user.id);
+        if (member.roles.highest.position >= botMember.roles.highest.position) {
+            return res.status(403).json({ error: 'Hierarchy Error: Target user has a higher or equal role. Move my role to the top!' });
+        }
         await member.timeout(minutes * 60 * 1000, `Neural Enforcement by Dashboard: ${reason || 'No reason provided'}`);
         (0, stats_1.recordTimeout)(guildId);
         (0, stats_1.recordAction)(guildId, {
@@ -166,6 +171,8 @@ app.post('/api/timeout', async (req, res) => {
         res.json({ success: true, message: `Member ${userTag} timed out for ${minutes}m.` });
     }
     catch (error) {
+        if (error.code === 50013)
+            return res.status(403).json({ error: 'Missing Permissions: Ensure I have "Moderate Members" and my role is at the top.' });
         console.error(error);
         res.status(500).json({ error: error.message || 'Failed to apply timeout' });
     }
@@ -184,35 +191,28 @@ app.post('/api/dev/private-scan', async (req, res) => {
             return res.status(404).json({ error: 'Channel not found' });
         }
         const textChannel = channel;
-        // Permission Check
         const permissions = textChannel.permissionsFor(client_1.client.user);
         if (!permissions || !permissions.has('ViewChannel') || !permissions.has('ReadMessageHistory')) {
             return res.status(403).json({ error: 'Forbidden: Missing Bot Permissions for this channel' });
         }
         const messages = await textChannel.messages.fetch({ limit: 100 });
-        const authorIds = Array.from(new Set(messages.map(m => m.author.id)));
-        try {
-            await textChannel.guild.members.fetch({ user: authorIds });
-        }
-        catch (e) {
-            console.log("[API] Failed to batch fetch members for private scan.");
-        }
-        const transcript = Array.from(messages.values())
-            .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
-            .map(m => {
+        // REST-BASED SINGLE FETCHING (Avoids Opcode 8 batch issues)
+        const transcript = [];
+        for (const m of Array.from(messages.values()).sort((a, b) => a.createdTimestamp - b.createdTimestamp)) {
             let roles = [];
             try {
-                roles = m.member?.roles.cache.map(r => r.name).filter(n => n !== '@everyone') || [];
+                const member = m.member || await textChannel.guild.members.fetch(m.author.id);
+                roles = member.roles.cache.map(r => r.name).filter(n => n !== '@everyone');
             }
             catch (e) { }
-            return {
+            transcript.push({
                 id: m.id,
                 author: m.author.tag,
                 roles: roles,
                 content: m.content,
                 timestamp: m.createdAt.toISOString()
-            };
-        });
+            });
+        }
         res.json({
             channel: textChannel.name,
             messages: transcript
@@ -231,7 +231,6 @@ app.post('/api/mass-scan', async (req, res) => {
     const { getAllConfigs } = require('./config');
     const configs = getAllConfigs();
     const isDevKey = process.env.DEV_KEY && key === process.env.DEV_KEY;
-    // Find authorized guild
     let authorizedGuildId = null;
     if (isDevKey) {
         try {
@@ -301,7 +300,19 @@ client_1.client.once(discord_js_1.Events.ClientReady, async (readyClient) => {
                 await (0, rules_1.fetchRules)(config.guildId, config.rulesChannelId);
             }
             catch (e) {
-                console.log(`[Startup] Could not fetch rules for ${config.guildId} (Missing Access)`);
+                console.log(`[Startup] Rules Access Failed for ${config.guildId}. Check permissions.`);
+                // Log to dashboard so user sees it
+                (0, stats_1.recordAction)(config.guildId, {
+                    timestamp: new Date().toISOString(),
+                    targetUser: 'SYSTEM',
+                    targetRoles: [],
+                    channel: 'ALL',
+                    violation: false,
+                    reason: 'Rules Access Warning',
+                    analysis: 'The bot cannot see your rules channel. Mass Scan and Pulse will use generic Discord standards until fixed.',
+                    socialProfile: 'Permissions Required',
+                    type: 'NORMAL'
+                });
             }
         }
     }
@@ -353,7 +364,7 @@ client_1.client.on(discord_js_1.Events.InteractionCreate, async (interaction) =>
                         modLogsChannelId: logChannel.id,
                         triggerBotId: triggerBot || undefined,
                         auditInterval: 100,
-                        defaultTimeout: 10 // FIXED: Initialize default timeout
+                        defaultTimeout: 10
                     });
                     await (0, rules_1.fetchRules)(guildId, rulesChannel.id);
                     await interaction.reply({
@@ -367,7 +378,7 @@ client_1.client.on(discord_js_1.Events.InteractionCreate, async (interaction) =>
                     return await interaction.reply({ content: 'Admin only.', flags: [discord_js_1.MessageFlags.Ephemeral] });
                 }
                 const interval = options.getInteger('audit-interval');
-                const timeout = options.getInteger('default-timeout'); // FIXED: Handle default-timeout option
+                const timeout = options.getInteger('default-timeout');
                 if (guildId) {
                     if (interval)
                         (0, config_1.saveConfig)({ guildId, auditInterval: interval });
@@ -447,11 +458,12 @@ client_1.client.on(discord_js_1.Events.InteractionCreate, async (interaction) =>
                 }
                 catch (err) {
                     console.error(err);
+                    const msg = err.code === 50013 ? 'Failed: I need "Moderate Members" and my role MUST be at the top!' : 'Failed to apply timeout.';
                     if (interaction.deferred || interaction.replied) {
-                        await interaction.followUp({ content: 'Failed to apply timeout. Check my permissions.', flags: [discord_js_1.MessageFlags.Ephemeral] });
+                        await interaction.followUp({ content: msg, flags: [discord_js_1.MessageFlags.Ephemeral] });
                     }
                     else {
-                        await interaction.reply({ content: 'Failed to apply timeout. Check my permissions.', flags: [discord_js_1.MessageFlags.Ephemeral] });
+                        await interaction.reply({ content: msg, flags: [discord_js_1.MessageFlags.Ephemeral] });
                     }
                 }
             }

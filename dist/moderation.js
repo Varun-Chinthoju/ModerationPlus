@@ -130,19 +130,21 @@ async function performMassScan(channel) {
     const sorted = [...allMessages].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
     const uniqueAuthors = Array.from(new Set(sorted.map(m => m.author.id)));
     const rolesMap = {};
-    // OPTIMIZED: Batch fetch users to avoid Opcode 8 rate limits
-    try {
-        const members = await channel.guild.members.fetch({ user: uniqueAuthors });
-        members.forEach(member => {
+    // REST-BASED INDIVIDUAL FETCHING (Safe from Opcode 8 rate limits)
+    for (const authorId of uniqueAuthors) {
+        try {
+            let member = channel.guild.members.cache.get(authorId);
+            if (!member) {
+                member = await channel.guild.members.fetch(authorId);
+            }
             rolesMap[member.user.tag] = member.roles.cache.map(r => r.name).filter(n => n !== '@everyone');
-        });
-    }
-    catch (e) {
-        console.log("[Mass Scan] Failed batch member fetch, using message metadata.");
-        sorted.forEach(m => {
-            if (!rolesMap[m.author.tag])
-                rolesMap[m.author.tag] = [];
-        });
+        }
+        catch (e) {
+            // Fallback to message metadata if member fetch fails
+            const msg = sorted.find(m => m.author.id === authorId);
+            if (msg && !rolesMap[msg.author.tag])
+                rolesMap[msg.author.tag] = [];
+        }
     }
     const rolesString = Object.entries(rolesMap).map(([tag, roles]) => `${tag}: [${roles.join(', ')}]`).join('\n');
     if (allMessages.length > 0) {
