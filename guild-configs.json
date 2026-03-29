@@ -4,5 +4,11 @@
     "rulesChannelId": "1487617848128831630",
     "modLogsChannelId": "1487617867917689054",
     "dashboardKey": "123"
+  },
+  "1487617516149674107": {
+    "guildId": "1487617516149674107",
+    "rulesChannelId": "1486154098695868491",
+    "modLogsChannelId": "1486175245663735908",
+    "dashboardKey": "Key"
   }
 }

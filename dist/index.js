@@ -142,7 +142,6 @@ app.post('/api/timeout', async (req, res) => {
         const guild = await client_1.client.guilds.fetch(guildId);
         if (!guild)
             return res.status(404).json({ error: 'Guild not found' });
-        // Find user by tag (this is tricky, tags like name#0000 are gone, now it's just 'name')
         const members = await guild.members.fetch();
         const member = members.find(m => m.user.tag === userTag || m.user.username === userTag);
         if (!member)
@@ -272,24 +271,26 @@ app.post('/api/mass-scan', async (req, res) => {
         res.status(500).json({ error: message });
     }
 });
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`API Dashboard server running on port ${PORT}`));
-client_1.client.once(discord_js_1.Events.ClientReady, async (readyClient) => {
-    console.log(`Ready! Logged in as ${readyClient.user.tag}`);
-    await (0, register_1.registerCommands)(readyClient.user.id);
-    // Set Bot Avatar
+async function setBotAvatar() {
     const fs = require('fs');
     const path = require('path');
     const avatarPath = path.join(__dirname, '../Profile Pic.png');
     if (fs.existsSync(avatarPath)) {
         try {
-            await readyClient.user.setAvatar(avatarPath);
+            await client_1.client.user.setAvatar(avatarPath);
             console.log('[Identity] Bot avatar updated successfully.');
         }
         catch (e) {
             console.log('[Identity] Avatar update skipped (rate limited or same image).');
         }
     }
+}
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`API Dashboard server running on port ${PORT}`));
+client_1.client.once(discord_js_1.Events.ClientReady, async (readyClient) => {
+    console.log(`Ready! Logged in as ${readyClient.user.tag}`);
+    await (0, register_1.registerCommands)(readyClient.user.id);
+    await setBotAvatar();
     // Initialize all configured server rules on startup
     const { getAllConfigs } = require('./config');
     const configs = getAllConfigs();
@@ -390,7 +391,8 @@ client_1.client.on(discord_js_1.Events.InteractionCreate, async (interaction) =>
                 await interaction.deferReply({ flags: [discord_js_1.MessageFlags.Ephemeral] });
                 const message = interaction.targetMessage;
                 if (message.channel.isTextBased()) {
-                    await (0, moderation_1.handlePotentialInfraction)(message.channel, message.author, message);
+                    // FIXED: Added forceLog: true to ensure results always go to mod logs
+                    await (0, moderation_1.handlePotentialInfraction)(message.channel, message.author, message, false, true);
                     await interaction.editReply('Analysis requested. Check the mod logs channel for results.');
                 }
                 else {

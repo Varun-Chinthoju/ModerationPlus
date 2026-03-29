@@ -158,7 +158,6 @@ app.post('/api/timeout', async (req, res) => {
         const guild = await client.guilds.fetch(guildId);
         if (!guild) return res.status(404).json({ error: 'Guild not found' });
 
-        // Find user by tag (this is tricky, tags like name#0000 are gone, now it's just 'name')
         const members = await guild.members.fetch();
         const member = members.find(m => m.user.tag === userTag || m.user.username === userTag);
 
@@ -303,6 +302,20 @@ app.post('/api/mass-scan', async (req, res) => {
     }
 });
 
+async function setBotAvatar() {
+    const fs = require('fs');
+    const path = require('path');
+    const avatarPath = path.join(__dirname, '../Profile Pic.png');
+    if (fs.existsSync(avatarPath)) {
+        try {
+            await client.user!.setAvatar(avatarPath);
+            console.log('[Identity] Bot avatar updated successfully.');
+        } catch (e) {
+            console.log('[Identity] Avatar update skipped (rate limited or same image).');
+        }
+    }
+}
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`API Dashboard server running on port ${PORT}`));
 
@@ -310,19 +323,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   console.log(`Ready! Logged in as ${readyClient.user.tag}`);
   
   await registerCommands(readyClient.user.id);
-
-  // Set Bot Avatar
-  const fs = require('fs');
-  const path = require('path');
-  const avatarPath = path.join(__dirname, '../Profile Pic.png');
-  if (fs.existsSync(avatarPath)) {
-      try {
-          await readyClient.user.setAvatar(avatarPath);
-          console.log('[Identity] Bot avatar updated successfully.');
-      } catch (e) {
-          console.log('[Identity] Avatar update skipped (rate limited or same image).');
-      }
-  }
+  await setBotAvatar();
   
   // Initialize all configured server rules on startup
   const { getAllConfigs } = require('./config');
@@ -432,7 +433,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 
                 const message = interaction.targetMessage;
                 if (message.channel.isTextBased()) {
-                    await handlePotentialInfraction(message.channel as TextChannel, message.author, message as any);
+                    // FIXED: Added forceLog: true to ensure results always go to mod logs
+                    await handlePotentialInfraction(message.channel as TextChannel, message.author, message as any, false, true);
                     await interaction.editReply('Analysis requested. Check the mod logs channel for results.');
                 } else {
                     await interaction.editReply('Could not analyze this channel.');

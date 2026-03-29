@@ -4,7 +4,13 @@ import { client } from './client';
 import { recordAction, recordMassScan } from './stats';
 import { getConfig } from './config';
 
-export async function handlePotentialInfraction(channel: TextChannel, targetUser: User, triggerMessage: Message, isProactive: boolean = false) {
+export async function handlePotentialInfraction(
+    channel: TextChannel, 
+    targetUser: User, 
+    triggerMessage: Message, 
+    isProactive: boolean = false,
+    forceLog: boolean = false // Added to support manual mod requests
+) {
     const config = getConfig(channel.guild.id);
     if (!config) return;
 
@@ -13,14 +19,15 @@ export async function handlePotentialInfraction(channel: TextChannel, targetUser
     const testPhrases = ['testing bot', 'test bot', 'bot test', 'ignore this'];
     const content = triggerMessage.content.toLowerCase();
 
-    if (isVulcan) {
+    // Skip Vulcan skip-logic if manually forced
+    if (isVulcan && !forceLog) {
         if (testPhrases.some(phrase => content.includes(phrase))) {
             console.log(`[Developer] Skipping analysis for Vulcan's test message.`);
             return;
         }
     }
 
-    console.log(`${isProactive ? '[Proactive]' : '[Triggered]'} Analyzing ${targetUser.tag} in #${channel.name}`);
+    console.log(`${forceLog ? '[Manual]' : (isProactive ? '[Proactive]' : '[Triggered]')} Analyzing ${targetUser.tag} in #${channel.name}`);
     
     // Fetch member to get roles
     let roles: string[] = [];
@@ -58,50 +65,67 @@ export async function handlePotentialInfraction(channel: TextChannel, targetUser
         reason: analysis.shortReason,
         analysis: analysis.detailedAnalysis,
         socialProfile: analysis.socialProfile,
-        type: analysis.violation ? 'INFRACTION' : 'NORMAL' // FIXED: Added missing type
+        type: analysis.violation ? 'INFRACTION' : 'NORMAL'
     });
     
-    if (!analysis.violation) {
-        console.log(`[Neural Profiling] Logged normal interaction for ${targetUser.tag}: ${analysis.socialProfile}`);
+    // Logic for posting to Discord mod logs
+    const shouldLogToDiscord = analysis.violation || forceLog;
+    
+    if (!shouldLogToDiscord) {
+        console.log(`[Neural Profiling] Logged normal interaction for ${targetUser.tag} internally.`);
         return;
     }
     
     // Send to mod logs
     const modLogsChannelId = config.modLogsChannelId;
-    if (!modLogsChannelId) return;
+    if (!modLogsChannelId) {
+        console.error(`[Moderation] No mod-logs channel configured for ${channel.guild.id}`);
+        return;
+    }
     
-    const modLogsChannel = await client.channels.fetch(modLogsChannelId);
-    if (!modLogsChannel || !modLogsChannel.isTextBased()) return;
-    
-    const textChannel = modLogsChannel as TextChannel;
-    
-    const embed = new EmbedBuilder()
-        .setTitle(`Potential Rule Violation: ${targetUser.tag}`)
-        .setColor(0xff0000)
-        .addFields(
-            { name: 'Channel', value: `<#${channel.id}>`, inline: true },
-            { name: 'User Roles', value: roles.join(', ') || 'None', inline: true },
-            { name: 'Behavior Profile', value: analysis.socialProfile },
-            { name: 'Suggested Timeout', value: `${analysis.timeoutMinutes} minutes`, inline: true },
-            { name: 'Short Reason', value: analysis.shortReason },
-            { name: 'Detailed Analysis', value: analysis.detailedAnalysis }
-        )
-        .setTimestamp();
+    try {
+        const modLogsChannel = await client.channels.fetch(modLogsChannelId);
+        if (!modLogsChannel || !modLogsChannel.isTextBased()) return;
         
-    const approveBtn = new ButtonBuilder()
-        .setCustomId(`approve_timeout_${targetUser.id}_${analysis.timeoutMinutes}`)
-        .setLabel(`Approve Timeout (${analysis.timeoutMinutes}m)`)
-        .setStyle(ButtonStyle.Danger);
+        const textChannel = modLogsChannel as TextChannel;
         
-    const dismissBtn = new ButtonBuilder()
-        .setCustomId(`dismiss_warning_${targetUser.id}`)
-        .setLabel('Dismiss')
-        .setStyle(ButtonStyle.Secondary);
-        
-    const row = new ActionRowBuilder<ButtonBuilder>()
-        .addComponents(approveBtn, dismissBtn);
-        
-    await textChannel.send({ embeds: [embed], components: [row] });
+        const embed = new EmbedBuilder()
+            .setTitle(analysis.violation ? `Potential Rule Violation: ${targetUser.tag}` : `Neural Safety Audit: ${targetUser.tag}`)
+            .setColor(analysis.violation ? 0xff0000 : 0x00ff00)
+            .addFields(
+                { name: 'Status', value: analysis.violation ? '🔴 Risk Detected' : '🟢 Safety Verified', inline: true },
+                { name: 'Channel', value: `<#${channel.id}>`, inline: true },
+                { name: 'User Roles', value: roles.join(', ') || 'None', inline: true },
+                { name: 'Behavior Profile', value: analysis.socialProfile || 'Neutral profiling engaged.' },
+                { name: 'Short Reason', value: analysis.shortReason },
+                { name: 'Detailed Analysis', value: analysis.detailedAnalysis }
+            )
+            .setTimestamp();
+
+        if (analysis.violation) {
+            embed.addFields({ name: 'Suggested Timeout', value: `${analysis.timeoutMinutes} minutes`, inline: true });
+            
+            const approveBtn = new ButtonBuilder()
+                .setCustomId(`approve_timeout_${targetUser.id}_${analysis.timeoutMinutes}`)
+                .setLabel(`Approve Timeout (${analysis.timeoutMinutes}m)`)
+                .setStyle(ButtonStyle.Danger);
+                
+            const dismissBtn = new ButtonBuilder()
+                .setCustomId(`dismiss_warning_${targetUser.id}`)
+                .setLabel('Dismiss')
+                .setStyle(ButtonStyle.Secondary);
+                
+            const row = new ActionRowBuilder<ButtonBuilder>()
+                .addComponents(approveBtn, dismissBtn);
+                
+            await textChannel.send({ embeds: [embed], components: [row] });
+        } else {
+            // Safety verification log (no action buttons needed)
+            await textChannel.send({ embeds: [embed] });
+        }
+    } catch (e) {
+        console.error(`[Moderation] Failed to send to mod logs:`, e);
+    }
 }
 
 interface ChannelCache {

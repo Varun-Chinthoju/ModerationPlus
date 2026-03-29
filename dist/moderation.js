@@ -7,7 +7,8 @@ const ai_1 = require("./ai");
 const client_1 = require("./client");
 const stats_1 = require("./stats");
 const config_1 = require("./config");
-async function handlePotentialInfraction(channel, targetUser, triggerMessage, isProactive = false) {
+async function handlePotentialInfraction(channel, targetUser, triggerMessage, isProactive = false, forceLog = false // Added to support manual mod requests
+) {
     const config = (0, config_1.getConfig)(channel.guild.id);
     if (!config)
         return;
@@ -15,13 +16,14 @@ async function handlePotentialInfraction(channel, targetUser, triggerMessage, is
     const isVulcan = targetUser.tag === 'vulcan_999456' || targetUser.username === 'vulcan_999456';
     const testPhrases = ['testing bot', 'test bot', 'bot test', 'ignore this'];
     const content = triggerMessage.content.toLowerCase();
-    if (isVulcan) {
+    // Skip Vulcan skip-logic if manually forced
+    if (isVulcan && !forceLog) {
         if (testPhrases.some(phrase => content.includes(phrase))) {
             console.log(`[Developer] Skipping analysis for Vulcan's test message.`);
             return;
         }
     }
-    console.log(`${isProactive ? '[Proactive]' : '[Triggered]'} Analyzing ${targetUser.tag} in #${channel.name}`);
+    console.log(`${forceLog ? '[Manual]' : (isProactive ? '[Proactive]' : '[Triggered]')} Analyzing ${targetUser.tag} in #${channel.name}`);
     // Fetch member to get roles
     let roles = [];
     try {
@@ -53,36 +55,52 @@ async function handlePotentialInfraction(channel, targetUser, triggerMessage, is
         reason: analysis.shortReason,
         analysis: analysis.detailedAnalysis,
         socialProfile: analysis.socialProfile,
-        type: analysis.violation ? 'INFRACTION' : 'NORMAL' // FIXED: Added missing type
+        type: analysis.violation ? 'INFRACTION' : 'NORMAL'
     });
-    if (!analysis.violation) {
-        console.log(`[Neural Profiling] Logged normal interaction for ${targetUser.tag}: ${analysis.socialProfile}`);
+    // Logic for posting to Discord mod logs
+    const shouldLogToDiscord = analysis.violation || forceLog;
+    if (!shouldLogToDiscord) {
+        console.log(`[Neural Profiling] Logged normal interaction for ${targetUser.tag} internally.`);
         return;
     }
     // Send to mod logs
     const modLogsChannelId = config.modLogsChannelId;
-    if (!modLogsChannelId)
+    if (!modLogsChannelId) {
+        console.error(`[Moderation] No mod-logs channel configured for ${channel.guild.id}`);
         return;
-    const modLogsChannel = await client_1.client.channels.fetch(modLogsChannelId);
-    if (!modLogsChannel || !modLogsChannel.isTextBased())
-        return;
-    const textChannel = modLogsChannel;
-    const embed = new discord_js_1.EmbedBuilder()
-        .setTitle(`Potential Rule Violation: ${targetUser.tag}`)
-        .setColor(0xff0000)
-        .addFields({ name: 'Channel', value: `<#${channel.id}>`, inline: true }, { name: 'User Roles', value: roles.join(', ') || 'None', inline: true }, { name: 'Behavior Profile', value: analysis.socialProfile }, { name: 'Suggested Timeout', value: `${analysis.timeoutMinutes} minutes`, inline: true }, { name: 'Short Reason', value: analysis.shortReason }, { name: 'Detailed Analysis', value: analysis.detailedAnalysis })
-        .setTimestamp();
-    const approveBtn = new discord_js_1.ButtonBuilder()
-        .setCustomId(`approve_timeout_${targetUser.id}_${analysis.timeoutMinutes}`)
-        .setLabel(`Approve Timeout (${analysis.timeoutMinutes}m)`)
-        .setStyle(discord_js_1.ButtonStyle.Danger);
-    const dismissBtn = new discord_js_1.ButtonBuilder()
-        .setCustomId(`dismiss_warning_${targetUser.id}`)
-        .setLabel('Dismiss')
-        .setStyle(discord_js_1.ButtonStyle.Secondary);
-    const row = new discord_js_1.ActionRowBuilder()
-        .addComponents(approveBtn, dismissBtn);
-    await textChannel.send({ embeds: [embed], components: [row] });
+    }
+    try {
+        const modLogsChannel = await client_1.client.channels.fetch(modLogsChannelId);
+        if (!modLogsChannel || !modLogsChannel.isTextBased())
+            return;
+        const textChannel = modLogsChannel;
+        const embed = new discord_js_1.EmbedBuilder()
+            .setTitle(analysis.violation ? `Potential Rule Violation: ${targetUser.tag}` : `Neural Safety Audit: ${targetUser.tag}`)
+            .setColor(analysis.violation ? 0xff0000 : 0x00ff00)
+            .addFields({ name: 'Status', value: analysis.violation ? '🔴 Risk Detected' : '🟢 Safety Verified', inline: true }, { name: 'Channel', value: `<#${channel.id}>`, inline: true }, { name: 'User Roles', value: roles.join(', ') || 'None', inline: true }, { name: 'Behavior Profile', value: analysis.socialProfile || 'Neutral profiling engaged.' }, { name: 'Short Reason', value: analysis.shortReason }, { name: 'Detailed Analysis', value: analysis.detailedAnalysis })
+            .setTimestamp();
+        if (analysis.violation) {
+            embed.addFields({ name: 'Suggested Timeout', value: `${analysis.timeoutMinutes} minutes`, inline: true });
+            const approveBtn = new discord_js_1.ButtonBuilder()
+                .setCustomId(`approve_timeout_${targetUser.id}_${analysis.timeoutMinutes}`)
+                .setLabel(`Approve Timeout (${analysis.timeoutMinutes}m)`)
+                .setStyle(discord_js_1.ButtonStyle.Danger);
+            const dismissBtn = new discord_js_1.ButtonBuilder()
+                .setCustomId(`dismiss_warning_${targetUser.id}`)
+                .setLabel('Dismiss')
+                .setStyle(discord_js_1.ButtonStyle.Secondary);
+            const row = new discord_js_1.ActionRowBuilder()
+                .addComponents(approveBtn, dismissBtn);
+            await textChannel.send({ embeds: [embed], components: [row] });
+        }
+        else {
+            // Safety verification log (no action buttons needed)
+            await textChannel.send({ embeds: [embed] });
+        }
+    }
+    catch (e) {
+        console.error(`[Moderation] Failed to send to mod logs:`, e);
+    }
 }
 const massScanCache = new Map();
 async function performMassScan(channel) {
