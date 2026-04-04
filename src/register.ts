@@ -9,6 +9,10 @@ const commands = [
     description: 'Forces the bot to re-read the #rules channel',
   },
   {
+    name: 'mass-scan',
+    description: 'Audits the last 500 messages in this channel for community health',
+  },
+  {
     name: 'Analyze Context',
     type: ApplicationCommandType.Message,
   },

@@ -1,5 +1,5 @@
-import { TextChannel, Message, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, User } from 'discord.js';
-import { analyzeContext } from './ai';
+import { TextChannel, Message, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, User, Collection, PermissionsBitField } from 'discord.js';
+import { analyzeContext, analyzeMassScan, MassScanResult } from './ai';
 import { client } from './index';
 import { recordAction } from './stats';
 
@@ -76,4 +76,34 @@ export async function handlePotentialInfraction(channel: TextChannel, targetUser
     } catch (e) {
         console.error(`Failed to send to mod logs:`, e);
     }
+}
+
+export async function performMassScan(channel: TextChannel): Promise<MassScanResult | null> {
+    const permissions = channel.permissionsFor(client.user!);
+    if (!permissions || !permissions.has(PermissionsBitField.Flags.ViewChannel) || !permissions.has(PermissionsBitField.Flags.ReadMessageHistory)) {
+        throw new Error('Missing Access: Bot cannot see that channel.');
+    }
+
+    console.log(`Starting mass scan for channel: #${channel.name}`);
+    let allMessages: Message[] = [];
+    
+    try {
+        let lastId: string | undefined;
+        for (let i = 0; i < 5; i++) { // Fetch up to 500 messages
+            const options: any = { limit: 100 };
+            if (lastId) options.before = lastId;
+            const fetched = await channel.messages.fetch(options) as unknown as Collection<string, Message>;
+            if (fetched.size === 0) break;
+            allMessages = allMessages.concat(Array.from(fetched.values()));
+            lastId = fetched.last()?.id;
+        }
+    } catch (e: any) {
+        if (e.code === 50001) throw new Error('Missing Access: Bot cannot read history in that channel.');
+        throw e;
+    }
+    
+    const sorted = [...allMessages].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+    const transcript = sorted.map(m => `[${m.createdAt.toISOString()}] ${m.author.tag}: ${m.content}`).join('\n');
+    
+    return await analyzeMassScan(transcript, sorted.length);
 }

@@ -1,10 +1,10 @@
-import { Client, GatewayIntentBits, Partials, Events, TextChannel } from 'discord.js';
+import { Client, GatewayIntentBits, Partials, Events, TextChannel, EmbedBuilder } from 'discord.js';
 import { GoogleGenAI } from '@google/genai';
 import * as dotenv from 'dotenv';
 import express from 'express';
 import cors from 'cors';
 import { fetchRules } from './rules';
-import { handlePotentialInfraction } from './moderation';
+import { handlePotentialInfraction, performMassScan } from './moderation';
 import { registerCommands } from './register';
 import { getGlobalStats, recordAccess, recordTimeout } from './stats';
 
@@ -37,6 +37,42 @@ app.get('/api/stats', (req, res) => {
         return res.status(401).json({ error: 'Unauthorized' });
     }
     res.json(getGlobalStats());
+});
+
+app.get('/api/channels', async (req, res) => {
+    const key = req.headers['x-api-key'];
+    if (key !== process.env.DASHBOARD_KEY) return res.status(401).json({ error: 'Unauthorized' });
+
+    try {
+        const guild = await client.guilds.fetch(TARGET_GUILD_ID);
+        const channels = await guild.channels.fetch();
+        const textChannels = channels
+            .filter(c => c !== null && c.isTextBased() && !c.isThread())
+            .map(c => ({ id: c!.id, name: (c as any).name }));
+        res.json(textChannels);
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to fetch channels' });
+    }
+});
+
+app.post('/api/purge', async (req, res) => {
+    const key = req.headers['x-api-key'];
+    const { channelId } = req.body;
+    if (key !== process.env.DASHBOARD_KEY) return res.status(401).json({ error: 'Unauthorized' });
+    if (!channelId) return res.status(400).json({ error: 'Channel ID required' });
+
+    try {
+        const channel = await client.channels.fetch(channelId);
+        if (!channel || !channel.isTextBased()) return res.status(404).json({ error: 'Channel not found' });
+        
+        const textChannel = channel as TextChannel;
+        // Discord bulkDelete is limited to 100 messages and messages < 14 days old
+        // For a full "clear", we'll do one batch of 100.
+        const deleted = await textChannel.bulkDelete(100, true);
+        res.json({ success: true, count: deleted.size });
+    } catch (e: any) {
+        res.status(500).json({ error: e.message || 'Purge failed' });
+    }
 });
 
 const PORT = process.env.PORT || 3000;
@@ -103,6 +139,43 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 await interaction.editReply('Rules successfully refreshed!');
             } else {
                 await interaction.reply({ content: 'RULES_CHANNEL_ID not set.', ephemeral: true });
+            }
+        }
+
+        if (interaction.commandName === 'mass-scan') {
+            if (!interaction.memberPermissions?.has('ManageMessages')) {
+                await interaction.reply({ content: 'You do not have permission to use this.', ephemeral: true });
+                return;
+            }
+            await interaction.deferReply();
+            
+            try {
+                const result = await performMassScan(interaction.channel as TextChannel);
+                if (!result) {
+                    await interaction.editReply('Mass scan failed.');
+                    return;
+                }
+
+                const embed = new EmbedBuilder()
+                    .setTitle(`Community Health Audit: #${(interaction.channel as any).name}`)
+                    .setDescription(result.generalConclusion)
+                    .setColor(0x00ff00)
+                    .addFields(
+                        { name: 'Messages Analyzed', value: result.totalMessages.toString(), inline: true },
+                        { name: 'Active Users', value: result.usersAnalyzed.length.toString(), inline: true }
+                    )
+                    .setTimestamp();
+
+                result.usersAnalyzed.slice(0, 10).forEach(user => {
+                    embed.addFields({ 
+                        name: `${user.userTag} [${user.riskLevel}]`, 
+                        value: user.behaviorSummary 
+                    });
+                });
+
+                await interaction.editReply({ embeds: [embed] });
+            } catch (e: any) {
+                await interaction.editReply(`Error: ${e.message}`);
             }
         }
     }

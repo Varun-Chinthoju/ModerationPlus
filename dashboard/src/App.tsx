@@ -26,27 +26,54 @@ interface BotStats {
     accessLogs: AccessLog[];
 }
 
+interface Channel {
+    id: string;
+    name: string;
+}
+
 function App() {
     const [apiKey, setApiKey] = useState(localStorage.getItem('dashboard_key') || '');
     const [botUrl, setBotUrl] = useState(localStorage.getItem('bot_url') || 'http://localhost:3000');
     const [isLoggedIn, setIsLoggedIn] = useState(!!localStorage.getItem('dashboard_key'));
     const [stats, setStats] = useState<BotStats | null>(null);
+    const [channels, setChannels] = useState<Channel[]>([]);
+    const [selectedChannel, setSelectedChannel] = useState('');
     const [loading, setLoading] = useState(false);
+    const [purgeLoading, setPurgeLoading] = useState(false);
     const [error, setError] = useState('');
 
     const fetchData = async () => {
         if (!apiKey) return;
         setLoading(true);
         try {
-            const response = await axios.get(`${botUrl}/api/stats`, {
-                headers: { 'x-api-key': apiKey }
-            });
-            setStats(response.data);
+            const [statsRes, channelsRes] = await Promise.all([
+                axios.get(`${botUrl}/api/stats`, { headers: { 'x-api-key': apiKey } }),
+                axios.get(`${botUrl}/api/channels`, { headers: { 'x-api-key': apiKey } })
+            ]);
+            setStats(statsRes.data);
+            setChannels(channelsRes.data);
             setError('');
         } catch (err: any) {
             setError(err.response?.data?.error || 'Failed to connect to bot.');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handlePurge = async () => {
+        if (!selectedChannel) return;
+        if (!confirm(`Are you sure you want to clear messages in #${channels.find(c => c.id === selectedChannel)?.name}?`)) return;
+        
+        setPurgeLoading(true);
+        try {
+            await axios.post(`${botUrl}/api/purge`, { channelId: selectedChannel }, {
+                headers: { 'x-api-key': apiKey }
+            });
+            alert('Channel cleared successfully!');
+        } catch (err: any) {
+            alert('Purge failed: ' + (err.response?.data?.error || err.message));
+        } finally {
+            setPurgeLoading(false);
         }
     };
 
@@ -140,7 +167,29 @@ function App() {
                             </div>
                         </div>
                     </div>
-                    <div className="flex items-center gap-3">
+                    
+                    <div className="flex flex-wrap items-center gap-3">
+                        {isLoggedIn && channels.length > 0 && (
+                            <div className="flex items-center gap-2 glass p-1.5 rounded-xl">
+                                <select 
+                                    value={selectedChannel} 
+                                    onChange={(e) => setSelectedChannel(e.target.value)}
+                                    className="bg-transparent text-sm text-slate-300 focus:outline-none px-2 py-1 cursor-pointer"
+                                >
+                                    <option value="" className="bg-slate-900">Select Channel</option>
+                                    {channels.map(ch => (
+                                        <option key={ch.id} value={ch.id} className="bg-slate-900">#{ch.name}</option>
+                                    ))}
+                                </select>
+                                <button 
+                                    onClick={handlePurge}
+                                    disabled={!selectedChannel || purgeLoading}
+                                    className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${!selectedChannel || purgeLoading ? 'bg-slate-700 text-slate-500 cursor-not-allowed' : 'bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-500/20'}`}
+                                >
+                                    {purgeLoading ? 'Clearing...' : 'Clear Channel'}
+                                </button>
+                            </div>
+                        )}
                         <button onClick={fetchData} className="p-3 glass rounded-xl hover:bg-white/10 transition-colors">
                             <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
                         </button>

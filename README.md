@@ -5,6 +5,7 @@ An intelligent, context-aware Discord moderation bot powered by Google's Gemini 
 ## 🚀 Features
 
 -   **Contextual Analysis**: Uses Gemini-1.5-Flash to analyze up to 50 messages of conversation history to understand the nuance of potential infractions.
+-   **Community Audit (Mass Scan)**: Moderators can run `/mass-scan` to have the AI analyze the last 500 messages in a channel for a detailed community health report.
 -   **Web Dashboard**: Monitor bot stats, uptime, and recent moderation actions in real-time.
 -   **Token Efficiency**: Only queries Gemini when triggered by a standard moderation bot (e.g., Arcane) or via a manual moderator command, saving on API costs.
 -   **Dynamic Rules Ingestion**: Reads your server's `#rules` channel on startup. Update your rules in Discord, run `/refresh-rules`, and the AI's "brain" is instantly updated.
@@ -68,6 +69,7 @@ npm run dev
 ## 📜 Commands
 
 -   `/refresh-rules`: (Admin only) Forces the bot to re-read and cache the content of your `#rules` channel.
+-   `/mass-scan`: (Moderator only) Audits the last 500 messages in the current channel for community health.
 -   **Analyze Context**: (Context Menu) Right-click any message to have Gemini evaluate the surrounding conversation.
 
 ## 🛡️ Moderation Workflow

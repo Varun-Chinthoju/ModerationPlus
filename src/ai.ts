@@ -8,6 +8,18 @@ export interface AnalysisResult {
     detailedAnalysis: string;
 }
 
+export interface UserSummary {
+    userTag: string;
+    behaviorSummary: string;
+    riskLevel: 'Low' | 'Medium' | 'High' | 'Critical';
+}
+
+export interface MassScanResult {
+    totalMessages: number;
+    usersAnalyzed: UserSummary[];
+    generalConclusion: string;
+}
+
 export async function analyzeContext(guildId: string, transcript: string, targetUser: string): Promise<AnalysisResult | null> {
     try {
         const prompt = `You are an expert Discord server moderator. Your job is to enforce the server rules fairly but strictly.
@@ -31,20 +43,53 @@ Return your evaluation as a JSON object with the following exact schema:
     "detailedAnalysis": string // A detailed explanation referencing the specific rule broken and why the context proves it.
 }`;
 
-        const response = await (ai as any).models.generateContent({
-            model: 'gemini-1.5-flash',
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            config: {
-                responseMimeType: "application/json",
-            }
-        });
-
-        const text = response.text;
-        if (!text) return null;
-
-        return JSON.parse(text);
+        const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const text = response.text();
+        
+        // Clean markdown if present
+        const jsonStr = text.replace(/```json|```/g, '').trim();
+        return JSON.parse(jsonStr);
     } catch (error) {
         console.error("Failed to analyze context with Gemini:", error);
+        return null;
+    }
+}
+
+export async function analyzeMassScan(transcript: string, count: number): Promise<MassScanResult | null> {
+    try {
+        const prompt = `You are an expert Discord community analyst. 
+Analyze the following transcript of ${count} messages to provide a "Community Health Audit".
+Identify key active users and provide a brief summary of their behavior and a risk level (Low, Medium, High, Critical).
+Finally, provide a general conclusion about the server's current atmosphere.
+
+### CONVERSATION TRANSCRIPT
+${transcript}
+
+### INSTRUCTIONS
+Return your evaluation as a JSON object with the following exact schema:
+{
+    "totalMessages": number,
+    "usersAnalyzed": [
+        {
+            "userTag": "string",
+            "behaviorSummary": "one sentence summary",
+            "riskLevel": "Low|Medium|High|Critical"
+        }
+    ],
+    "generalConclusion": "A detailed executive summary of the community state."
+}`;
+
+        const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const text = response.text();
+        
+        const jsonStr = text.replace(/```json|```/g, '').trim();
+        return JSON.parse(jsonStr);
+    } catch (error) {
+        console.error("Failed to perform AI Mass Scan:", error);
         return null;
     }
 }
