@@ -43,7 +43,7 @@ Return your evaluation as a JSON object with the following exact schema:
     "detailedAnalysis": string // A detailed explanation referencing the specific rule broken and why the context proves it.
 }`;
 
-        const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        const model = (ai as any).getGenerativeModel({ model: 'gemini-1.5-flash' });
         const result = await model.generateContent(prompt);
         const response = await result.response;
         const text = response.text();
@@ -81,7 +81,7 @@ Return your evaluation as a JSON object with the following exact schema:
     "generalConclusion": "A detailed executive summary of the community state."
 }`;
 
-        const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        const model = (ai as any).getGenerativeModel({ model: 'gemini-1.5-flash' });
         const result = await model.generateContent(prompt);
         const response = await result.response;
         const text = response.text();
