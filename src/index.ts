@@ -10,6 +10,8 @@ import { getGlobalStats, recordAccess, recordTimeout } from './stats';
 
 dotenv.config();
 
+const TARGET_GUILD_ID = '1487617515440963718';
+
 // Ensure required environment variables are set
 if (!process.env.DISCORD_TOKEN) throw new Error("DISCORD_TOKEN is missing in .env");
 if (!process.env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is missing in .env");
@@ -60,18 +62,21 @@ client.once(Events.ClientReady, async (readyClient) => {
   
   await registerCommands(readyClient.user.id);
   
-  // Fetch rules on startup
+  // Fetch rules on startup for the target guild
   if (process.env.RULES_CHANNEL_ID) {
-      const firstGuild = client.guilds.cache.first();
-      if (firstGuild) {
+      const targetGuild = client.guilds.cache.get(TARGET_GUILD_ID);
+      if (targetGuild) {
           await fetchRules(process.env.RULES_CHANNEL_ID);
+          console.log(`Pre-cached rules for target guild: ${TARGET_GUILD_ID}`);
+      } else {
+          console.error(`Warning: Bot is not in the target guild ${TARGET_GUILD_ID}`);
       }
   }
 });
 
 client.on(Events.MessageCreate, async (message) => {
-    // Ignore direct messages
-    if (!message.guild || !message.channel.isTextBased()) return;
+    // Only process messages from the target guild
+    if (!message.guild || message.guild.id !== TARGET_GUILD_ID || !message.channel.isTextBased()) return;
     
     // Check if the message is from the trigger bot (e.g., Arcane)
     if (process.env.TRIGGER_BOT_ID && message.author.id === process.env.TRIGGER_BOT_ID) {
@@ -83,6 +88,9 @@ client.on(Events.MessageCreate, async (message) => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
+    // Only process interactions from the target guild
+    if (interaction.guildId !== TARGET_GUILD_ID) return;
+
     if (interaction.isChatInputCommand()) {
         if (interaction.commandName === 'refresh-rules') {
             if (!interaction.memberPermissions?.has('Administrator')) {
